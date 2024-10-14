@@ -8,7 +8,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem-per-cpu=2G
+#SBATCH --mem-per-cpu=3G
 #SBATCH --time=15 #D-H:M
 
 
@@ -46,7 +46,7 @@ bwa mem -t 8 -T 0 -R "@RG\tID:$ID\tSM:$SM\tLB:$LB\tPL:$PL" \
 /gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa \
 /gpfs/data/bergstrom/foxseq2024/"$file"_1.fq.gz \
 /gpfs/data/bergstrom/foxseq2024/"$file"_2.fq.gz \
-> /gpfs/data/bergstrom/paula/fox_repo/readgroups/RGs_test_output.sam ; \
+> /gpfs/data/bergstrom/paula/data/RGs_test_output.sam ; \
 done
 
  
