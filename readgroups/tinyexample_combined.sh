@@ -8,8 +8,9 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem-per-cpu=3G
+#SBATCH --mem-per-cpu=10G
 #SBATCH --time=15 #D-H:M
+#SBATCH --partition=compute-64-512
 
 
 #file where I'm trying to do the Read group thing for only one file, for learning purposes 
@@ -46,7 +47,23 @@ bwa mem -t 8 -T 0 -R "@RG\tID:$ID\tSM:$SM\tLB:$LB\tPL:$PL" \
 /gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa \
 /gpfs/data/bergstrom/foxseq2024/"$file"_1.fq.gz \
 /gpfs/data/bergstrom/foxseq2024/"$file"_2.fq.gz \
-> /gpfs/data/bergstrom/paula/data/RGs_test_output.sam ; \
+> /gpfs/data/bergstrom/paula/data/RGs_test_output.bam ; \
 done
 
- 
+
+
+#Simply combine what anders did
+#################################################
+#Soft link read group config file:
+#CONFIG=/gpfs/data/bergstrom/foxseq2024/read-group-config.txt
+#index=/gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa
+#Load bwa and samtools:
+#module load bwa
+#module load samtools
+#Loop over files, submit separate run-bwa.sh job for each file - here using the "head" command
+#to get only the first line, for testing purposes:
+#sed '1d; 5q;d' "$CONFIG" | head -1 | while read file ID SM LB PL; do \
+#bwa mem -t 8 -T 0 -R "@RG\tID:$ID\tSM:$SM\tLB:$LB\tPL:$PL" \
+#"$index" "$file"_1.fq.gz "$file"_2.fq.gz \
+#| samtools view -b -o $ID.bwa.bam ; \
+#done
