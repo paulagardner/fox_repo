@@ -6,10 +6,10 @@
 #SBATCH --mail-user=paula.gardner@uea.ac.uk
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=9
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem-per-cpu=10G
-#SBATCH --time=15 #D-H:M
+#SBATCH --time=3-0 #D-H:M
 #SBATCH --partition=compute-64-512
 
 
@@ -47,7 +47,7 @@ bwa mem -t 8 -T 0 -R "@RG\tID:$ID\tSM:$SM\tLB:$LB\tPL:$PL" \
 /gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa \
 /gpfs/data/bergstrom/foxseq2024/"$file"_1.fq.gz \
 /gpfs/data/bergstrom/foxseq2024/"$file"_2.fq.gz \
-> /gpfs/data/bergstrom/paula/data/RGs_test_output.bam ; \
+|samtools view -b -o bamfiles/$ID.bwa.bam ; \
 done
 
 
