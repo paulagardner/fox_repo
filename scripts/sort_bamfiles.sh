@@ -11,13 +11,18 @@ module load samtools
 mkdir -p "$OUTPUT_DIR/slurmout"
 
 for file in $INPUT_DIR/*.bam; do
-    # Extract the prefix (basename without extension)
-    prefix=$(basename "$file" .bam)
+    	# Extract the prefix (basename without extension)
+	prefix=$(basename "$file" .bam)
 
-    # Submit the job using sbatch
-    sbatch -J sort_samtools --time 4-0 --mem=16G --cpus-per-task=4 --partition=compute-64-512 \
-    -o "$OUTPUT_DIR/slurmout/$prefix.sorted.o" -e "$OUTPUT_DIR/slurmout/$prefix.sorted.e" \
-    --wrap="samtools sort -@ 4 -m 2G -T $TEMP_DIR/$prefix.temp --reference $REFERENCE_GENOME $file -o $OUTPUT_DIR/$prefix.sorted.bam"
-    # Uncomment the following line to process only the first file for testing
-    #break
+    	# Submit the job using sbatch
+    	sbatch -J sort_samtools --time 4-0 --mem=20G --cpus-per-task=4 --partition=compute-64-512 \
+	-o "$OUTPUT_DIR/slurmout/$prefix.sorted.o" \
+	-e "$OUTPUT_DIR/slurmout/$prefix.sorted.e" \
+	--wrap="samtools sort -@ 6 -m 2G \
+	-T $TEMP_DIR/$prefix.temp \
+	$file \
+	-o $OUTPUT_DIR/$prefix.sorted.bam"
+	#--wrap="samtools sort -@ 4 -m 2G -T $TEMP_DIR/$prefix.temp --reference $REFERENCE_GENOME $file -o $OUTPUT_DIR/$prefix.sorted.bam"
+	# Uncomment the following line to -process only the first file for testing
+	#break
 done

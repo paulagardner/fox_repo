@@ -3,7 +3,7 @@
 module load samtools
 
 # Define the input directory
-INPUT_DIR="/gpfs/data/bergstrom/paula/fox_repo/readgroups/sorted_bamfiles"
+INPUT_DIR="/gpfs/data/bergstrom/paula/fox_repo/data/sorted_bamfiles"
 OUTPUT_DIR="/gpfs/data/bergstrom/paula/fox_repo/data/merged_bamfiles"
 LOG_DIR="/gpfs/data/bergstrom/paula/fox_repo/data/merged_bamfiles/slurmout"
 TXTPATH="/gpfs/data/bergstrom/foxseq2024/read-group-config.txt"
@@ -38,7 +38,7 @@ for sample in $SAMPLE_NAMES; do
 		#module add samtools
 		##samtools merge -f -o "$OUTPUT_FILE" $(echo $SAMPLE_FILES)
 		# Break after the first job submission for testing
-		break
+		#break
 	else
 		echo "No files found for $sample"
 	fi
