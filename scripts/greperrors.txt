@@ -1,2 +1,0 @@
-grep -i "fail\|error" *.e >> ~/fox_repo/data/errors.txt
-sed -n 's/^\(.*\)bwa\.sorted\.e.*/\1bwa.bam/p' errors.txt | sort | uniq >> rerun_sort.txt
