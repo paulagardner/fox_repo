@@ -1,3 +1,5 @@
+#!/bin/bash
+
 grep -i "fail\|error" *.e >> ~/fox_repo/data/sorterrors.txt
 sed -n 's/^\(.*\)bwa\.sorted\.e.*/\1bwa.bam/p' sorterrors.txt | sort | uniq >> rerun_sort.txt
 
