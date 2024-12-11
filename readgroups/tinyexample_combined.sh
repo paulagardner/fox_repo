@@ -47,7 +47,7 @@ bwa mem -t 8 -T 0 -R "@RG\tID:$ID\tSM:$SM\tLB:$LB\tPL:$PL" \
 /gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa \
 /gpfs/data/bergstrom/foxseq2024/"$file"_1.fq.gz \
 /gpfs/data/bergstrom/foxseq2024/"$file"_2.fq.gz \
-|samtools view -b -o bamfiles/$ID.bwa.bam ; \
+|samtools view -b -o /gpfs/data/bergstrom/paula/fox_repo/readgroups/readgroup_bamfiles/$ID.bwa.bam ; \
 done
 
 

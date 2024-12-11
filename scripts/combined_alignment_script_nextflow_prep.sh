@@ -7,18 +7,21 @@ TXTPATH="/gpfs/data/bergstrom/foxseq2024/read-group-config.txt"
 module load bwa
 module load samtools
 
-# Directory to store SLURM output
-slurmdir=slurm_output
-mkdir -p "$slurmdir"
-
 # Hard-code BWA index location
 index=/gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa
-bamfilesdir=readgroup_bamfiles
+bamfilesdir=/gpfs/data/bergstrom/paula/fox_repo/our_genomes/combined_align_script_bamfiles
+echo "$bamfilesdir"
 mkdir -p "$bamfilesdir"
+
+# Directory to store SLURM output
+slurmdir=$bamfilesdir/slurm_output
+mkdir -p "$slurmdir"
 
 # Read the config file (skipping the header) and process only the first line
 sed 1d "$TXTPATH" | while read file ID SM LB PL; do 
   output=$(basename "$file")
+  echo "$output"
+  echo "$file"
 
   # Submit the job to SLURM
   sbatch -J batch_align \
