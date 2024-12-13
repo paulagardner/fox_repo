@@ -22,8 +22,11 @@ Requirements for the sample set directory (--inputDir):
 */
 
 params.rg_config_path = '/gpfs/data/bergstrom/foxseq2024/read-group-config.txt'
+params.sequence_files_path = '/gpfs/data/bergstrom/foxseq2024'
 params.index_path = '/gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa'
 params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/our_genomes'
+
+//params.paired_end_fastqs = "gpfs/data/bergstrom/foxseq2024/${sample_prefix}_{1,2}.fastq.gz"
 
 
 
@@ -62,7 +65,7 @@ process test {
 
 process bwa_mem_align {
     tag { "${sample_prefix}" }
-    publishDir "${params.output_dir}/bwa_align", mode: 'copy', overwrite: true
+    publishDir "${params.output_dir}/bwa_align", mode: 'symlink', overwrite: true
     cache 'lenient'
 
     // SLURM directives
@@ -79,8 +82,6 @@ process bwa_mem_align {
         //path "output_dir/{bamfile_basename}.bwa.bam"  // Output to the work directory
         //path "${bamfile_basename}.bwa.bam"
         file "${bamfile_basename}.bwa.bam" 
-
-    
     
     script:
     """
@@ -111,6 +112,14 @@ process sort {
 
     publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
 
+    // SLURM directives
+    executor 'slurm'               // Use SLURM as the executor
+    queue 'compute-64-512'         // Specify the SLURM partition/queue
+    time '3d'                      // Request 3 days of wall time
+    memory '2 GB'                 // Request 2 GB of memory
+    cpus 6                         // Request 6 CPU cores
+
+
     input:
         path bamfile
 
@@ -120,6 +129,9 @@ process sort {
     echo "${bamfile}"
 
     module load samtools 
+    
+    samtools sort "${bamfile}" 
+
     samtools view "${bamfile}" | head -10 > sort_test.txt
     """
 }
@@ -149,16 +161,12 @@ workflow {
 
             // Extract only the filename portion (without directory structure)
             // sample_prefix = sample_prefix.tokenize('/')[-1]  // tested with this- replace [basename_bamfile] in test and bwa mem align to replicate
-            bamfile_basename = sample_prefix.tokenize('/')[-1]  // Keep only the last part-1]
+            bamfile_basename = sample_prefix.tokenize('/')[-1]  // Keep only the last part-1]. hopefully, tokenize will NOT split if / does not exist, and therefore match whatever path you
 
             // Define the full paths to the FASTQ files
-            def fastq1_path = "/gpfs/data/bergstrom/foxseq2024/${sample_prefix}_1.fq.gz" //may have to look into whether this will break if sequences are NOT paired-end. Consider the {1,2} format in https://github.com/nextflow-io/nextflow/discussions/2923
-            def fastq2_path = "/gpfs/data/bergstrom/foxseq2024/${sample_prefix}_2.fq.gz"
-            
-            // Print out the paths for debugging (optional)
-            // println "Sample Prefix: ${sample_prefix}"
-            // println "Fastq 1 Path: ${fastq1_path}"
-            // println "Fastq 2 Path: ${fastq2_path}"
+            //def fastq1_path = "params.sequence_files/${sample_prefix}_1.fq.gz" //may have to look into whether this will break if sequences are NOT paired-end. Consider the {1,2} format in https://github.com/nextflow-io/nextflow/discussions/2923
+            def fastq1_path = "${params.sequence_files_path}/${sample_prefix}_1.fq.gz"
+            def fastq2_path = "${params.sequence_files_path}/${sample_prefix}_2.fq.gz"
 
             // Return a tuple containing all required fields
             return tuple(
@@ -172,19 +180,15 @@ workflow {
                 file(fastq2_path),  // Path to the second FASTQ file
             )
         }
+        
+        .take(2)  // Take only the first tuple. remove these two lines, they're my equivalent of break for groovy right now.
+        .set { first_readgroup_config_channel }
 
     // Take only the first row from the channel and pass it to bwa_mem_align process
-    readgroups_config_channel
-        .take(1)  // Take only the first tuple
-        .set { first_readgroup_config_channel }
-        //.into { alignment_input_channel; test_input_channel }
-
-    //Or, use: 
-    //first_readgroup_config_channel.into { input_channel }
-    //test(input_channel)
-
-    //for some reason, presumably having to do with scope or data types, test(first_readgroup_config_channel doesn't work
-    // presumably, something having to do with 
+    //readgroups_config_channel
+    //    .take(1)  // Take only the first tuple
+    //    .set { first_readgroup_config_channel }
+    //    //.into { alignment_input_channel; test_input_channel }
 
     // Workflow connection
     first_readgroup_config_channel | bwa_mem_align | sort  //COMMENT OUT TO NOT RUN THIS PROCESS DURING TESTING
