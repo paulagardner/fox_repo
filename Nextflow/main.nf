@@ -16,6 +16,11 @@ Requirements for the sample set directory (--inputDir):
 - A manually created readgroups file is required (automation can be explored later).
 */
 
+
+/*
+
+*/
+
 params.rg_config_path = '/gpfs/data/bergstrom/foxseq2024/read-group-config.txt'
 params.index_path = '/gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa'
 params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/our_genomes'
@@ -31,7 +36,7 @@ process sayHello {
 
 process test {
 
-    publishDir "${params.output_dir}/bwa_align", mode: 'copy'
+    publishDir "${params.output_dir}/bwa_align", mode: 'symlink'
 
     input:
         tuple val(sample_prefix), val(read_group_id), val(sample_id), val(library), val(platform), val(bamfile_basename), path(fastq1_path), path(fastq2_path)
@@ -58,12 +63,13 @@ process test {
 process bwa_mem_align {
     tag { "${sample_prefix}" }
     publishDir "${params.output_dir}/bwa_align", mode: 'copy', overwrite: true
+    cache 'lenient'
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
     queue 'compute-64-512'         // Specify the SLURM partition/queue
     time '3d'                      // Request 3 days of wall time
-    memory '30 GB'                 // Request 10 GB of memory
+    memory '20 GB'                 // Request 10 GB of memory
     cpus 12                         // Request 8 CPU cores
 
     input: //these are the variables that the process will actually use
@@ -71,7 +77,10 @@ process bwa_mem_align {
 
     output:
         //path "output_dir/{bamfile_basename}.bwa.bam"  // Output to the work directory
-        path "${bamfile_basename}.bwa.bam"
+        //path "${bamfile_basename}.bwa.bam"
+        file "${bamfile_basename}.bwa.bam" 
+
+    
     
     script:
     """
@@ -80,22 +89,10 @@ process bwa_mem_align {
     module load samtools
 
     # Ensure the output directory exists
-    mkdir -p ${params.output_dir}/bwa_align #nextflow really hated you trying to write files directly to your
-    #work dir, which makes sense, as my research suggests it is simply not made for that. 
-    #I think you're really meant to do everything in the work dir folder, and 'publish' desired files out.
-    #"Personally I like using a single work directory for all my pipelines, especially in scratch storage with a cleanup policy, then I can set it and forget about it."
-    #from https://github.com/nextflow-io/nextflow/discussions/4584
-
-
-    # Extract the base name using bash's basename command
-    #bamfile_basename=\$(basename (${sample_prefix})) 
-    #bamfile_basename=\$(basename "${sample_prefix}" | cut -d. -f1) #this didn't work-- worked to move the action to the workflow 
-    
+    mkdir -p ${params.output_dir}/bwa_align 
 
     # Debugging output to check paths
     echo "Sample prefix: ${sample_prefix}"
-    #echo "BAM basename: \${bamfile_basename}" not using this, because this was what (I think) was causing the unbound variable issue
-    #echo "BAM basename: {bamfile_basename}" #when you don't include the $, the variable will not print correctly in the process.echo message/slurm output. 
     echo "BAM basename: ${bamfile_basename}"     
     echo "Fastq 1 Path: ${fastq1_path}"
     echo "Fastq 2 Path: ${fastq2_path}"
@@ -106,65 +103,35 @@ process bwa_mem_align {
     bwa mem -t ${task.cpus} -T 0 -R '@RG\\tID:${read_group_id}\\tSM:${sample_id}\\tLB:${library}\\tPL:${platform}' \
     ${params.index_path} ${fastq1_path} ${fastq2_path} | \
     samtools view -b -o "${bamfile_basename}.bwa.bam"
-
     """  
+}
 
-    /* script:
-    """
-    # Load the required modules
-    module load bwa
-    module load samtools
+process sort {
+    tag { "Sort ${bamfile.baseName}" }
 
-    # Ensure the output directory exists
-    mkdir -p ${params.output_dir}
+    publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
 
-    # Extract the base name using bash's basename command
-    #bamfile_basename=\$(basename (${sample_prefix}))
-    bamfile_basename=$(basename "${sample_prefix}" | cut -d. -f1)
-
-    # Debugging output to check paths
-    echo "Sample prefix: ${sample_prefix}"
-    echo "BAM basename: ${bamfile_basename}"
-    echo "Fastq 1 Path: ${fastq1_path}"
-    echo "Fastq 2 Path: ${fastq2_path}"
-    echo "Reference Index Path: ${params.index_path}"
-    echo "Output path: ${params.output_dir}/${bamfile_basename}.bwa.bam"
-
-    # Run bwa and samtools
-    bwa mem -t ${task.cpus} -T 0 -R '@RG\\tID:${read_group_id}\\tSM:${sample_id}\\tLB:${library}\\tPL:${platform}' \
-    ${params.index_path} ${fastq1_path} ${fastq2_path} | \
-    samtools view -b -o "${params.output_dir}/${bamfile_basename}.bwa.bam"
-    """ */
-    
-    /* 
-    bamfile_basename = ${sample_prefix}.tokenize('/')[-1].split('\\.')[0]
+    input:
+        path bamfile
 
     script:
     """
-    # Load the required modules
-    module load bwa
-    module load samtools
+    echo "this is the sort process" 
+    echo "${bamfile}"
 
-    # Ensure the output directory exists
-    mkdir -p ${params.output_dir}
-
-    # Debugging output to check paths
-    echo "Sample prefix: ${sample_prefix}"
-    echo "BAM basename: ${bamfile_basename}"
-    echo "Fastq 1 Path: ${fastq1_path}"
-    echo "Fastq 2 Path: ${fastq2_path}"
-    echo "Reference Index Path: ${params.index_path}"
-    echo "Output path: ${params.output_dir}/${bamfile_basename}.bwa.bam"
-
-    # Run bwa and samtools
-    bwa mem -t ${task.cpus} -T 0 -R '@RG\\tID:${read_group_id}\\tSM:${sample_id}\\tLB:${library}\\tPL:${platform}' \
-    ${params.index_path} ${fastq1_path} ${fastq2_path} | \
-    samtools view -b -o "${params.output_dir}/${bamfile_basename}.bwa.bam" 
+    module load samtools 
+    samtools view "${bamfile}" | head -10 > sort_test.txt
     """
-    */
-
 }
 
+
+
+/*
+if you need to have two input channels, this can affect resume
+
+also, -resume/cache-ing troubleshooting: https://github.com/nextflow-io/nextflow/issues/1629
+https://seqera.io/blog/demystifying-nextflow-resume/
+*/
 
 workflow {
     
@@ -210,6 +177,7 @@ workflow {
     readgroups_config_channel
         .take(1)  // Take only the first tuple
         .set { first_readgroup_config_channel }
+        //.into { alignment_input_channel; test_input_channel }
 
     //Or, use: 
     //first_readgroup_config_channel.into { input_channel }
@@ -218,8 +186,19 @@ workflow {
     //for some reason, presumably having to do with scope or data types, test(first_readgroup_config_channel doesn't work
     // presumably, something having to do with 
 
-    first_readgroup_config_channel | bwa_mem_align //COMMENT OUT TO NOT RUN THIS PROCESS DURING TESTING
+    // Workflow connection
+    first_readgroup_config_channel | bwa_mem_align | sort  //COMMENT OUT TO NOT RUN THIS PROCESS DURING TESTING
 
     first_readgroup_config_channel | test 
-    /////////////////////////////////////////////////////////////
+
+    //bwa_mem_align.out | sort
+
+    //bwa_mem_align(readgroups_config_channel)
+
+
+    ////////////////////////////////////////////////////////////////////
+    // Pass alignment_channel to sort
+    // Collect output files from bwa_mem_align into a channel
+    //bwa_mem_align.out.collect() | sort
+
 }
