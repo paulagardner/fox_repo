@@ -19,7 +19,7 @@ process bwa_mem_align {
     output:
         //path "output_dir/{bamfile_basename}.bwa.bam"  // Output to the work directory
         //path "${bamfile_basename}.bwa.bam"
-        tuple path("testing_${bamfile_basename}.txt"), val("${bamfile_basename}")
+        tuple path("testing_${bamfile_basename}.txt"), val(bamfile_basename)
     
     script:
     """
@@ -45,33 +45,35 @@ process sort {
     publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
 
     input:
-        tuple path(bamfile), val(basename)
+        tuple path(bamfile), val(bamfile_basename)
 
     output:
-        tuple path("sort_standin_${basename}.txt"), val(basename)
+        tuple path("sort_standin_${bamfile_basename}.txt"), val(bamfile_basename)
 
     script:
     """
-    echo "${bamfile}"
-    cat "${bamfile}" > sort_standin_"${basename}".txt
+    #echo "${bamfile}"
+    cat "${bamfile}" > sort_standin_"${bamfile_basename}".txt
     """
 }
 
-process merge {
+process merge_samples {
     tag { "merge ${bamfile.baseName}" }
 
     publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
 
-    input:
-        tuple path(bamfile), val(basename)
+    //input:
+        //tuple path(bamfile), val(bamfile_basename), val(params.rg_config_path) from sort_output
+        //tuple  tuple(sample_prefix, read_group_id, sample_id, library, platform, bamfile_basename, sort(bwa_output))
+
 
     output:
-        tuple path("sort_standin_${basename}.txt"), val(basename)
+        tuple path("sort_standin_${bamfile_basename}.txt"), val(bamfile_basename)
 
     script:
     """
-    echo "${bamfile}"
-    cat "${bamfile}" > sort_standin_"${basename}".txt
+    #echo "${bamfile}"
+    cat "${bamfile}" > sort_standin_"${bamfile_basename}".txt
     """
 }
 
@@ -96,12 +98,21 @@ workflow {
                 file(fastq1_path),
                 file(fastq2_path))
             }
-        //.take(6)  // Take only the first tuple. remove these two lines, they're my equivalent of break for groovy right now.
-        //.set {first_readgroup_config_channel } // Save as a reusable channel
+        .take(3)  // Take only the first tuple. remove these two lines, they're my equivalent of break for groovy right now.
+        //.view()
+        .set{first_readgroup_config_channel } // Save as a reusable channel
+
+
+    //first_readgroup_config_channel.view()
 
     // Connect channels to processes
-    bwa_output = bwa_mem_align(readgroups_config_channel)
-    sort_output = sort(bwa_output) 
+    bwa_output_ch = bwa_mem_align(first_readgroup_config_channel) //make bwa_output channel from bwa_mem_align
+    sort_output_ch = sort(bwa_output_ch) //make sort_output channel
+        //.view()
+
+    first_readgroup_config_channel.combine(sort_output_ch)
+       .view()
+        
 }
 
 

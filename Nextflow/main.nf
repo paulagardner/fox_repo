@@ -65,13 +65,13 @@ process test {
 
 process bwa_mem_align {
     tag { "${sample_prefix}" }
-    publishDir "${params.output_dir}/bwa_align", mode: 'symlink', overwrite: true
+    //publishDir "${params.output_dir}/bwa_align", mode: 'symlink', overwrite: true
     cache 'lenient'
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
     queue 'compute-64-512'         // Specify the SLURM partition/queue
-    time '3d'                      // Request 3 days of wall time
+    time '3days'                      // Request 3 days of wall time
     memory '20 GB'                 // Request 10 GB of memory
     cpus 12                         // Request 8 CPU cores
 
@@ -81,7 +81,7 @@ process bwa_mem_align {
     output:
         //path "output_dir/{bamfile_basename}.bwa.bam"  // Output to the work directory
         //path "${bamfile_basename}.bwa.bam"
-        file "${bamfile_basename}.bwa.bam" 
+        tuple path("${bamfile_basename}.bwa.bam"), val(bamfile_basename)
     
     script:
     """
@@ -110,7 +110,7 @@ process bwa_mem_align {
 process sort {
     tag { "Sort ${bamfile.baseName}" }
 
-    publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
+    //publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
@@ -121,18 +121,16 @@ process sort {
 
 
     input:
-        path bamfile
+        tuple path(bamfile), val(bamfile_basename)
+
+    output:
+        tuple path("${bamfile_basename}.sort"), val(bamfile_basename)
 
     script:
     """
-    echo "this is the sort process" 
-    echo "${bamfile}"
-
     module load samtools 
     
-    samtools sort "${bamfile}" 
-
-    samtools view "${bamfile}" | head -10 > sort_test.txt
+    samtools sort "${bamfile}" -o "${bamfile_basename}.sort"
     """
 }
 
@@ -181,8 +179,8 @@ workflow {
             )
         }
         
-        .take(2)  // Take only the first tuple. remove these two lines, they're my equivalent of break for groovy right now.
-        .set { first_readgroup_config_channel }
+        //.take(2)  // Take only the first tuple. remove these two lines, they're my equivalent of break for groovy right now.
+        //.set { first_readgroup_config_channel }
 
     // Take only the first row from the channel and pass it to bwa_mem_align process
     //readgroups_config_channel
@@ -191,18 +189,11 @@ workflow {
     //    //.into { alignment_input_channel; test_input_channel }
 
     // Workflow connection
-    first_readgroup_config_channel | bwa_mem_align | sort  //COMMENT OUT TO NOT RUN THIS PROCESS DURING TESTING
+    //first_readgroup_config_channel | bwa_mem_align | sort  //COMMENT OUT TO NOT RUN THIS PROCESS DURING TESTING
+    //first_readgroup_config_channel | test 
 
-    first_readgroup_config_channel | test 
-
-    //bwa_mem_align.out | sort
-
-    //bwa_mem_align(readgroups_config_channel)
-
-
-    ////////////////////////////////////////////////////////////////////
-    // Pass alignment_channel to sort
-    // Collect output files from bwa_mem_align into a channel
-    //bwa_mem_align.out.collect() | sort
+    // Connect channels to processes
+    bwa_output = bwa_mem_align(readgroups_config_channel)
+    sort_output = sort(bwa_output) 
 
 }
