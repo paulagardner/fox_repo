@@ -19,7 +19,9 @@ process bwa_mem_align {
     output:
         //path "output_dir/{bamfile_basename}.bwa.bam"  // Output to the work directory
         //path "${bamfile_basename}.bwa.bam"
-        tuple path("testing_${bamfile_basename}.txt"), val(bamfile_basename)
+	
+	//set the sample ID as an output so you can carry it through the pipeline: 
+        tuple val(sample_id), path("testing_${bamfile_basename}.txt"), val(bamfile_basename)
     
     script:
     """
@@ -45,10 +47,10 @@ process sort {
     publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
 
     input:
-        tuple path(bamfile), val(bamfile_basename)
+        tuple val(sample_ID), path(bamfile), val(bamfile_basename)
 
     output:
-        tuple path("sort_standin_${bamfile_basename}.txt"), val(bamfile_basename)
+        tuple val(sample_ID), path("sort_standin_${bamfile_basename}.txt"), val(bamfile_basename)
 
     script:
     """
@@ -66,14 +68,18 @@ process merge_samples {
         //tuple path(bamfile), val(bamfile_basename), val(params.rg_config_path) from sort_output
         //tuple  tuple(sample_prefix, read_group_id, sample_id, library, platform, bamfile_basename, sort(bwa_output))
 
+    input: 
+	tuple val(sample_id), path(bamfiles), path(bamfile_basenames)
 
     output:
-        tuple path("sort_standin_${bamfile_basename}.txt"), val(bamfile_basename)
+        tuple val(sample_id), path("merged_${bamfile_basename}.txt"), val(bamfile_basename)
 
     script:
     """
+    #echo "${bamfiles}"
+
     #echo "${bamfile}"
-    cat "${bamfile}" > sort_standin_"${bamfile_basename}".txt
+    #cat "${bamfiles}" > sort_standin_"${sample_id}".txt
     """
 }
 
@@ -107,12 +113,16 @@ workflow {
 
     // Connect channels to processes
     bwa_output_ch = bwa_mem_align(first_readgroup_config_channel) //make bwa_output channel from bwa_mem_align
-    sort_output_ch = sort(bwa_output_ch) //make sort_output channel
-        //.view()
+	//.view()
 
-    first_readgroup_config_channel.combine(sort_output_ch)
-       .view()
-        
+    sort_output_ch = sort(bwa_output_ch) //make sort_output channel
+        .groupTuple()
+	.view()
+ 
+
+   //bwa_output_ch.join(sort_output_ch)
+	//.groupTuple() 
+	//.view()
 }
 
 
