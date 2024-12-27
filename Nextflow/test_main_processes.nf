@@ -60,18 +60,33 @@ process sort {
 }
 
 process merge_samples {
-    tag { "merge ${key}" }
+    tag { "merge ${sample_ID}" }
 
     publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
 
     input:
-    	tuple val(key), path(list1), val(list2)
+    	tuple val(sample_ID), path(bamfiles), val(bamfile_basenames)
+
+    output: 
+	
 
     script:
     """
-    echo "Key: ${key}"
-    echo "List 1: ${list1.join(', ')}"
-    echo "List 2: ${list2.join(', ')}"
+   
+    echo "Key: ${sample_ID}"
+    echo "raw list 1: ${bamfiles}"
+    #echo "List 1: ${bamfiles.join(', ')}" #join is only necessary if you want to include this delimiter
+    #echo "List 2: ${bamfile_basenames.join(', ')}"
+    
+    #cat 
+
+
+    # Concatenate all files in list1 into one file
+    cat ${bamfiles.join(' ')} > merged_${sample_ID}.txt
+
+    # Print the contents of the merged file for verification
+    echo "Merged contents of ${sample_ID}:"
+    cat merged_${sample_ID}.txt
     """
 }
 
