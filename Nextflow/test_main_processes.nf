@@ -60,28 +60,21 @@ process sort {
 }
 
 process merge_samples {
-    tag { "merge ${bamfile.baseName}" }
+    tag { "merge ${key}" }
 
     publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
 
-    //input:
-        //tuple path(bamfile), val(bamfile_basename), val(params.rg_config_path) from sort_output
-        //tuple  tuple(sample_prefix, read_group_id, sample_id, library, platform, bamfile_basename, sort(bwa_output))
-
-    input: 
-	tuple val(sample_id), path(bamfiles), path(bamfile_basenames)
-
-    output:
-        tuple val(sample_id), path("merged_${bamfile_basename}.txt"), val(bamfile_basename)
+    input:
+    	tuple val(key), path(list1), val(list2)
 
     script:
     """
-    #echo "${bamfiles}"
-
-    #echo "${bamfile}"
-    #cat "${bamfiles}" > sort_standin_"${sample_id}".txt
+    echo "Key: ${key}"
+    echo "List 1: ${list1.join(', ')}"
+    echo "List 2: ${list2.join(', ')}"
     """
 }
+
 
 workflow {
     // Define the input channel
@@ -118,7 +111,11 @@ workflow {
     sort_output_ch = sort(bwa_output_ch) //make sort_output channel
         .groupTuple()
 	.view()
- 
+
+    sort_output_ch | merge_samples
+
+   // merge_output = merge_samples(sort_output_ch)
+
 
    //bwa_output_ch.join(sort_output_ch)
 	//.groupTuple() 
