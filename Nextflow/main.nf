@@ -145,7 +145,7 @@ https://seqera.io/blog/demystifying-nextflow-resume/
 
 workflow {
     
-    sayHello()
+   // sayHello()
 
 
     ///////////////////////////////////////////////////////////////////////////
@@ -179,8 +179,9 @@ workflow {
             )
         }
         
-        //.take(2)  // Take only the first tuple. remove these two lines, they're my equivalent of break for groovy right now.
-        //.set { first_readgroup_config_channel }
+        .take(2)  // Take only the first tuple. remove these two lines, they're my equivalent of break for groovy right now.
+        .set { first_readgroups_config_channel }
+
 
     // Take only the first row from the channel and pass it to bwa_mem_align process
     //readgroups_config_channel
@@ -192,8 +193,19 @@ workflow {
     //first_readgroup_config_channel | bwa_mem_align | sort  //COMMENT OUT TO NOT RUN THIS PROCESS DURING TESTING
     //first_readgroup_config_channel | test 
 
+
+
+    first_readgroups_config_channel.take(1).view()
+
+
+
     // Connect channels to processes
-    bwa_output = bwa_mem_align(readgroups_config_channel)
-    sort_output = sort(bwa_output) 
+    bwa_output = bwa_mem_align(first_readgroups_config_channel)
+
+    bwa_output.take(1).view()
+
+    sort_output = sort(bwa_output)
+   
 
 }
+   
