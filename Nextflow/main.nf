@@ -37,31 +37,6 @@ process sayHello {
     """
 }
 
-process test {
-
-    publishDir "${params.output_dir}/bwa_align", mode: 'symlink'
-
-    input:
-        tuple val(sample_prefix), val(read_group_id), val(sample_id), val(library), val(platform), val(bamfile_basename), path(fastq1_path), path(fastq2_path)
-
-    output:
-        path "${bamfile_basename}.txt"
-
-    script:
-    """
-    mkdir -p ${params.output_dir}/bwa_align
-
-    # Debugging output to check paths
-    echo "Sample prefix: ${sample_prefix}\n \
-    BAM basename: ${bamfile_basename}\n \
-    Fastq 1 Path: ${fastq1_path}\n \
-    Fastq 2 Path: ${fastq2_path}\n \
-    Reference Index Path: ${params.index_path}\n \
-    Output path: ${params.output_dir}/${bamfile_basename}.bwa.bam" \
-    > '${bamfile_basename}.txt'
-    """
-}
-
 
 process bwa_mem_align {
     tag { "${sample_prefix}" }
@@ -81,7 +56,7 @@ process bwa_mem_align {
     output:
         //path "output_dir/{bamfile_basename}.bwa.bam"  // Output to the work directory
         //path "${bamfile_basename}.bwa.bam"
-        tuple path("${bamfile_basename}.bwa.bam"), val(bamfile_basename)
+        tuple val(sample_id), path("${bamfile_basename}.bwa.bam"), val(bamfile_basename)
     
     script:
     """
@@ -93,12 +68,12 @@ process bwa_mem_align {
     mkdir -p ${params.output_dir}/bwa_align 
 
     # Debugging output to check paths
-    echo "Sample prefix: ${sample_prefix}"
-    echo "BAM basename: ${bamfile_basename}"     
-    echo "Fastq 1 Path: ${fastq1_path}"
-    echo "Fastq 2 Path: ${fastq2_path}"
-    echo "Reference Index Path: ${params.index_path}"
-    echo "Output path: ${params.output_dir}/${bamfile_basename}.bwa.bam"
+    #echo "Sample prefix: ${sample_prefix}"
+    #echo "BAM basename: ${bamfile_basename}"     
+    #echo "Fastq 1 Path: ${fastq1_path}"
+    #echo "Fastq 2 Path: ${fastq2_path}"
+    #echo "Reference Index Path: ${params.index_path}"
+    #echo "Output path: ${params.output_dir}/${bamfile_basename}.bwa.bam"
 
     # Run bwa and samtools
     bwa mem -t ${task.cpus} -T 0 -R '@RG\\tID:${read_group_id}\\tSM:${sample_id}\\tLB:${library}\\tPL:${platform}' \
@@ -109,6 +84,7 @@ process bwa_mem_align {
 
 process sort {
     tag { "Sort ${bamfile.baseName}" }
+    cache 'lenient'
 
     //publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
 
@@ -121,10 +97,10 @@ process sort {
 
 
     input:
-        tuple path(bamfile), val(bamfile_basename)
+        tuple val(sample_id), path(bamfile), val(bamfile_basename)
 
     output:
-        tuple path("${bamfile_basename}.sort"), val(bamfile_basename)
+        tuple val(sample_id), path("${bamfile_basename}.sort"), val(bamfile_basename)
 
     script:
     """
@@ -133,6 +109,32 @@ process sort {
     samtools sort "${bamfile}" -o "${bamfile_basename}.sort"
     """
 }
+
+
+process merge_samples {
+    tag { "merge ${sample_ID}" }
+    cache 'lenient'
+    publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
+
+    input:
+    	tuple val(sample_id), path(bamfiles), val(bamfile_basenames)
+
+    output:
+        tuple val(sample_id), path("${sample_id}.merge"), val(bamfile_basenames)
+
+    script:
+    """
+    #module load samtools
+    #samtools merge ${bamfiles} -o "${sample_id}.merge"
+
+    for bamfile in ${bamfiles.collect { it.getName() }}; do
+        echo "\$bamfile" >> filenames_${sample_id}.txt
+    """
+}
+
+
+
+
 
 
 
@@ -193,19 +195,33 @@ workflow {
     //first_readgroup_config_channel | bwa_mem_align | sort  //COMMENT OUT TO NOT RUN THIS PROCESS DURING TESTING
     //first_readgroup_config_channel | test 
 
+    first_readgroups_config_channel.take(1)
+    //.view()
 
 
-    first_readgroups_config_channel.take(1).view()
-
+	//really should look into map() or another way to 
+	// have the names of the variables assigned above, 
+	// then their actual values, shown on the console or in
+	// slurm out for debugging. 
+	// for now, I'm going to hard code it: 
 
 
     // Connect channels to processes
     bwa_output = bwa_mem_align(first_readgroups_config_channel)
 
-    bwa_output.take(1).view()
+    //bwa_output.take(1)
+    //.view()
 
-    sort_output = sort(bwa_output)
-   
+
+    sort_output_ch = sort(bwa_output) //make sort_output channel
+	    .groupTuple()
+        .view()
+
+    //merge_input_ch = sort_output_ch.groupTuple()
+
+    merge_output_ch = merge_samples(sort_output_ch)
+
+    //sort_output_ch | merge_samples 
 
 }
    

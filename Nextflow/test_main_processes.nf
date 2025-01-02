@@ -125,7 +125,7 @@ workflow {
 
     sort_output_ch = sort(bwa_output_ch) //make sort_output channel
         .groupTuple()
-	    .view()
+	    //.view()
 
     merge_output_ch = merge_samples(sort_output_ch)
         .view()
