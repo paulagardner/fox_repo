@@ -13,6 +13,5 @@ module load nextflow
 
 #nextflow run main.nf -w $TMPDIR/work -process.echo
 #rm -rf $TMPDIR/work
-nextflow run test_main_processes.nf -resume -process.echo 
+#nextflow run test_main_processes.nf -resume -process.echo 
 nextflow run main.nf -resume -process.echo
-#nextflow run 2main.nf -resume -process.echo 

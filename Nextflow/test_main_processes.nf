@@ -68,13 +68,13 @@ process merge_samples {
     	tuple val(sample_ID), path(bamfiles), val(bamfile_basenames)
 
     output: 
-	
+        tuple val(sample_ID), path("merged_${sample_ID}.txt"), val(bamfile_basenames)
 
     script:
     """
    
-    echo "Key: ${sample_ID}"
-    echo "raw list 1: ${bamfiles}"
+    #echo "Key: ${sample_ID}"
+    #echo "raw list 1: ${bamfiles}"
     #echo "List 1: ${bamfiles.join(', ')}" #join is only necessary if you want to include this delimiter
     #echo "List 2: ${bamfile_basenames.join(', ')}"
     
@@ -85,8 +85,8 @@ process merge_samples {
     cat ${bamfiles.join(' ')} > merged_${sample_ID}.txt
 
     # Print the contents of the merged file for verification
-    echo "Merged contents of ${sample_ID}:"
-    cat merged_${sample_ID}.txt
+    #echo "Merged contents of ${sample_ID}:"
+    #cat merged_${sample_ID}.txt
     """
 }
 
@@ -112,7 +112,7 @@ workflow {
                 file(fastq1_path),
                 file(fastq2_path))
             }
-        .take(3)  // Take only the first tuple. remove these two lines, they're my equivalent of break for groovy right now.
+        .take(10)  // Take only the first tuple. remove these two lines, they're my equivalent of break for groovy right now.
         //.view()
         .set{first_readgroup_config_channel } // Save as a reusable channel
 
@@ -125,9 +125,10 @@ workflow {
 
     sort_output_ch = sort(bwa_output_ch) //make sort_output channel
         .groupTuple()
-	.view()
+	    .view()
 
-    sort_output_ch | merge_samples
+    merge_output_ch = merge_samples(sort_output_ch)
+        .view()
 
    // merge_output = merge_samples(sort_output_ch)
 
