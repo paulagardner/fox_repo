@@ -25,7 +25,6 @@ process bwa_mem_align {
     
     script:
     """
-    # Load the required modules
 
     # Ensure the output directory exists
     mkdir -p ${params.output_dir}/bwa_align 

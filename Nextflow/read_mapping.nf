@@ -163,40 +163,39 @@ process mark_duplicates {
     """
 }
 
-/* process calculate_coverage {
-    tag { "coverage ${sample_id}" }
+
+process index_mdup_bam {
+    tag { "index bam ${sample_id}" }
     cache 'lenient'
-    publishDir "${params.output_dir}/metrics", mode: 'symlink', overwrite: true
+    publishDir "${params.output_dir}/duplicates_marked", mode: 'symlink', overwrite: true
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
     queue 'compute-64-512'         // Specify the SLURM partition/queue
-    time '3d'                      // Request 3 days of wall time
+    time '1d'                      // Request n days of wall time
     memory '16 GB'                 // Request n GB of memory
     cpus 4                         // Request n CPU cores
 
     input:
-    	tuple val(sample_id), path(merge_file), val(bamfiles_basenames)
+    	tuple val(sample_id), path(mdup_file), path(mdup_metrics), val(bamfiles_basenames)
 
     output:
-        tuple val(sample_id), path("${sample_id}.marked"), path("metrics-MarkDuplicates.${sample_id}.txt"), val(bamfiles_basenames)
-        
+        tuple val(sample_id), path("${mdup_file}.bai"), val(bamfiles_basenames)
 
     script:
     """
     # Ensure the output directory exists
-    mkdir -p "${params.output_dir}/duplicates_marked"
+    mkdir -p "{params.output_dir}/duplicates_marked"
 
-    java -jar /gpfs/software/ada/picard/2.24.1/picard.jar MarkDuplicates I=${merge_file} O=${sample_id}.marked M=metrics-MarkDuplicates.${sample_id}.txt
+    module load samtools
+    
+    samtools index -@ 4 ${mdup_file}
 
     """
 
-java -jar /gpfs/software/ada/picard/2.24.1/picard.jar CollectWgsMetrics I=$bam_file O=$output_file  R=$reference
-    
+
 }
 
-process create_metrics {
- */
 
 
 
@@ -272,15 +271,12 @@ workflow {
 
     //placeholders for processes that rely only on the duplicates marking step, and which therefore can 
     //be run as different processes with placeholders
-    // coverage_output = calculate_coverage(duplicates_output_ch)
+    //coverage_output = calculate_coverage(duplicates_output_ch)
 
-    // index_ch = index(duplicates_output_ch)
+    index_ch = index_mdup_bam(duplicates_output_ch)
 
     merge_output_ch.view()
     duplicates_output_ch.view()
-
-
-
-
+    index_ch.view()
 }
    
