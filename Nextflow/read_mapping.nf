@@ -23,7 +23,7 @@ Requirements for the sample set directory (--inputDir):
 
 params.rg_config_path = '/gpfs/data/bergstrom/foxseq2024/read-group-config.txt'
 params.sequence_files_path = '/gpfs/data/bergstrom/foxseq2024'
-params.index_path = '/gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa'
+params.reference_path = '/gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa'
 params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/our_genomes'
 
 //params.paired_end_fastqs = "gpfs/data/bergstrom/foxseq2024/${sample_prefix}_{1,2}.fastq.gz"
@@ -65,7 +65,7 @@ process bwa_mem_align {
 
     # Run bwa and samtools
     bwa mem -t ${task.cpus} -T 0 -R '@RG\\tID:${read_group_id}\\tSM:${sample_id}\\tLB:${library}\\tPL:${platform}' \
-    ${params.index_path} ${bamfile_basename}.subsampled.fastq1 ${bamfile_basename}.subsampled.fastq2 | \
+    ${params.reference_path} ${bamfile_basename}.subsampled.fastq1 ${bamfile_basename}.subsampled.fastq2 | \
     samtools view -b -o "${bamfile_basename}.bwa.bam"
 
     # Clean up the subsampled FASTQ files
@@ -150,7 +150,7 @@ process mark_duplicates {
     	tuple val(sample_id), path(merge_file), val(bamfiles_basenames)
 
     output:
-        tuple val(sample_id), path("${sample_id}.marked"), path("metrics-MarkDuplicates.${sample_id}.txt"), val(bamfiles_basenames)
+        tuple val(sample_id), path("${sample_id}.marked.bam"), path("metrics-MarkDuplicates.${sample_id}.txt"), val(bamfiles_basenames)
         
 
     script:
@@ -158,11 +158,41 @@ process mark_duplicates {
     # Ensure the output directory exists
     mkdir -p "${params.output_dir}/duplicates_marked"
 
-    java -jar /gpfs/software/ada/picard/2.24.1/picard.jar MarkDuplicates I=${merge_file} O=${sample_id}.marked M=metrics-MarkDuplicates.${sample_id}.txt
+    java -jar /gpfs/software/ada/picard/2.24.1/picard.jar MarkDuplicates I=${merge_file} O=${sample_id}.marked.bam M=metrics-MarkDuplicates.${sample_id}.txt
 
     """
 }
 
+
+process validate_bamfile {
+    tag { "validate bam ${sample_id}" }
+    cache 'lenient'
+    publishDir "${params.output_dir}/duplicates_marked", mode: 'symlink', overwrite: true
+
+    // SLURM directives
+    executor 'slurm'               // Use SLURM as the executor
+    queue 'compute-64-512'         // Specify the SLURM partition/queue
+    time '1d'                      // Request n days of wall time
+    memory '16 GB'                 // Request n GB of memory
+    cpus 4                         // Request n CPU cores
+
+    input:
+    	tuple val(sample_id), path(mdup_file), path(mdup_metrics), val(bamfiles_basenames)
+
+    output:
+        tuple val(sample_id), path("ValidateSamfile.${sample_id}.txt"), val(bamfiles_basenames)
+
+    script:
+    """
+    # Ensure the output directory exists
+    mkdir -p "{params.output_dir}/duplicates_marked"
+
+    module load samtools
+    
+    java -jar /gpfs/software/ada/picard/2.24.1/picard.jar ValidateSamFile I=$mdup_file O=ValidateSamfile.${sample_id}.txt M=VERBOSE
+
+    """
+}
 
 process index_mdup_bam {
     tag { "index bam ${sample_id}" }
@@ -192,10 +222,7 @@ process index_mdup_bam {
     samtools index -@ 4 ${mdup_file}
 
     """
-
-
 }
-
 
 
 
@@ -268,6 +295,7 @@ workflow {
 
     duplicates_output_ch = mark_duplicates(merge_output_ch)
 
+    validation_ch  = validate_bamfile(duplicates_output_ch)
 
     //placeholders for processes that rely only on the duplicates marking step, and which therefore can 
     //be run as different processes with placeholders
@@ -275,8 +303,8 @@ workflow {
 
     index_ch = index_mdup_bam(duplicates_output_ch)
 
-    merge_output_ch.view()
-    duplicates_output_ch.view()
-    index_ch.view()
+    //merge_output_ch.view()
+    //duplicates_output_ch.view()
+    //index_ch.view()
 }
    

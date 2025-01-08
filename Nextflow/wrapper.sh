@@ -14,4 +14,4 @@ module load nextflow
 #nextflow run main.nf -w $TMPDIR/work -process.echo
 #rm -rf $TMPDIR/work
 #nextflow run test_main_processes.nf -resume -process.echo 
-nextflow run read_mapping.nf -resume -process.echo
+nextflow run read_mapping.nf --resume --process.echo
