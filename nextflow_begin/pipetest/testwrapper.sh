@@ -3,6 +3,7 @@
 #SBATCH --job-name=myworkflow
 
 
+
 # if you run nextflow from some environmental module or conda env, load it here.
 module load nextflow 
 # or source /path/to/conda/bin/activate /path/to/your/env
