@@ -31,7 +31,7 @@ params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/our_genomes'
 process bwa_mem_align {
     tag { "bwa align ${bamfile_basename}" }
     publishDir "${params.output_dir}/bwa_align", mode: 'symlink', overwrite: true
-    cache 'lenient'
+
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
@@ -69,7 +69,7 @@ process bwa_mem_align {
 process sort {
     tag { "Sort ${bamfile.baseName}" }
     publishDir "${params.output_dir}/sorted_files", mode: 'symlink', overwrite: true
-    cache 'lenient'
+
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
@@ -98,7 +98,6 @@ process sort {
 
 process merge_samples {
     tag { "merge ${sample_id}" }
-    cache 'lenient'
     publishDir "${params.output_dir}/merged_files", mode: 'symlink', overwrite: true
 
     // SLURM directives
@@ -127,8 +126,7 @@ process merge_samples {
 
 process mark_duplicates {
     tag { "dupmark ${sample_id}" }
-    cache 'lenient'
-    publishDir "${params.output_dir}/duplicates_marked", mode: 'symlink', overwrite: true
+    publishDir "${params.output_dir}/duplicates_marked", mode: 'copy', overwrite: true
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
@@ -157,8 +155,7 @@ process mark_duplicates {
 
 process validate_bamfile {
     tag { "validate bam ${sample_id}" }
-    cache 'lenient'
-    publishDir "${params.output_dir}/duplicates_marked", mode: 'symlink', overwrite: true
+    publishDir "${params.output_dir}/duplicates_marked", mode: 'copy', overwrite: true
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
@@ -187,8 +184,7 @@ process validate_bamfile {
 
 process index_mdup_bam {
     tag { "index bam ${sample_id}" }
-    cache 'lenient'
-    publishDir "${params.output_dir}/duplicates_marked", mode: 'symlink', overwrite: true
+    publishDir "${params.output_dir}/duplicates_marked", mode: 'copy', overwrite: true
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
@@ -274,10 +270,14 @@ workflow {
 	// slurm out for debugging. For now, they're not labeled.
 
     // Connect channels to processes
-    bwa_output = bwa_mem_align(test_readgroups_config_channel)
+    bwa_output_ch = bwa_mem_align(test_readgroups_config_channel)
 
-    sort_output_ch = sort(bwa_output) //make sort_output channel
-	    .groupTuple()
+    sort_output_ch = sort(bwa_output_ch)
+        .groupTuple()
+
+    /*this link seems to indicate that there is no (obvious) way around 
+    the merge process waiting for ALL tasks in sort to finish. return to this later?
+    */
 
     merge_output_ch = merge_samples(sort_output_ch)
 

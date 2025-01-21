@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=1 #should be number of cores you will be using
-#SBATCH --job-name=myworkflow
+#SBATCH --job-name=readmapping
+#SBATCH --time=7-00:00
 
 
 # if you run nextflow from some environmental module or conda env, load it here.
@@ -14,4 +15,4 @@ module load nextflow
 #nextflow run main.nf -w $TMPDIR/work -process.echo
 #rm -rf $TMPDIR/work
 #nextflow run test_main_processes.nf -resume -process.echo 
-nextflow run read_mapping.nf --resume 
+nextflow run read_mapping.nf -resume 
