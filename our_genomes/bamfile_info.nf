@@ -1,14 +1,14 @@
 params.rg_config_path = '/gpfs/data/bergstrom/foxseq2024/read-group-config.txt'
-params.bamfiles_path = '/gpfs/home/xrq24scu/fox_repo/our_genomes/mapping/bwamem'
+params.bamfiles_path = '/gpfs/home/xrq24scu/fox_repo/our_genomes/results/mapping/bwamem'
 params.sequence_files_path = '/gpfs/data/bergstrom/foxseq2024'
 params.reference_path = '/gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa'
-params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/our_genomes'
+params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/our_genomes/results'
 
 
 process calculate_coverage {
     tag { "coverage ${sample_id}" }
     cache 'lenient'
-    publishDir "${params.output_dir}/metrics", mode: 'symlink', overwrite: true
+    publishDir "${params.output_dir}/bamfileinfo_test", mode: 'symlink', overwrite: true
 
     // SLURM directives
     executor 'slurm'               // Use SLURM as the executor
@@ -26,7 +26,7 @@ process calculate_coverage {
     script:
     """
     # Ensure the output directory exists
-    mkdir -p "${params.output_dir}/metrics"
+    mkdir -p "${params.output_dir}/bamfileinfo_test"
 
     java -jar /gpfs/software/ada/picard/2.24.1/picard.jar CollectWgsMetrics I=$file O=WgsMetrics.${sample_id}.txt  R=${params.reference_path}
 
