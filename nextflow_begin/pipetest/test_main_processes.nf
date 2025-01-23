@@ -3,7 +3,7 @@
 params.rg_config_path = '/gpfs/data/bergstrom/foxseq2024/read-group-config.txt'
 params.sequence_files_path = '/gpfs/data/bergstrom/foxseq2024'
 params.index_path = '/gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa'
-params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/our_genomes'
+params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/nextflow_begin/pipetest/files'
 
 //params.paired_end_fastqs = "gpfs/data/bergstrom/foxseq2024/${sample_prefix}_{1,2}.fastq.gz"
 
@@ -11,7 +11,6 @@ params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/our_genomes'
 process bwa_mem_align {
     tag { "${sample_prefix}" }
     publishDir "${params.output_dir}/bwa_align", mode: 'symlink', overwrite: true
-    cache 'lenient'
 
     executor 'local'               // Use SLURM as the executor
     queue 'compute-64-512'         // Specify the SLURM partition/queue
@@ -45,7 +44,6 @@ process bwa_mem_align {
 
 process sort {
     tag { "Sort ${bamfile.baseName}" }
-    cache 'lenient'
 
 
     executor 'local'               // Use SLURM as the executor
@@ -63,14 +61,11 @@ process sort {
     """
     #echo "${bamfile}"
     cat "${bamfile}" > sort_standin_"${bamfile_basename}".txt
-    echo "hi"
     """
 }
 
 process merge_samples {
     tag { "merge ${sample_ID}" }
-    cache 'lenient'
-    
 
     executor 'local'               // Use SLURM as the executor
     queue 'compute-64-512'         // Specify the SLURM partition/queue
@@ -130,9 +125,11 @@ workflow {
     // bwa_mem_align output
     bwa_output_ch = bwa_mem_align(first_readgroup_config_channel)
 
+    
+    //test
     sort_output_ch = sort(bwa_output_ch) //make sort_output channel
 	    .groupTuple()
-        .view()
+        //.view()
 
 
     //////

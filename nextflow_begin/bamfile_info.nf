@@ -1,5 +1,5 @@
 params.rg_config_path = '/gpfs/data/bergstrom/foxseq2024/read-group-config.txt'
-params.bamfiles_path = '/gpfs/home/xrq24scu/fox_repo/our_genomes/duplicates_marked'
+params.bamfiles_path = '/gpfs/home/xrq24scu/fox_repo/our_genomes/mapping/bwamem'
 params.sequence_files_path = '/gpfs/data/bergstrom/foxseq2024'
 params.reference_path = '/gpfs/data/bergstrom/ref/fox/mVulVul1/bwa/mVulVul1.fa'
 params.output_dir = '/gpfs/data/bergstrom/paula/fox_repo/our_genomes'
@@ -56,14 +56,15 @@ process summarize {
     script:
     """
     echo "##########AVERAGE COVERAGE##########" 
-    cat /gpfs/data/bergstrom/foxseq2024/samples-gdoc-order.txt | while read sample; do
+    for sample_id in ${sample_id}; do
         cat ${params.output_dir}/metrics/WgsMetrics.${sample_id}.txt \\
         | grep -A1 "^GENOME_TERRITORY" \\
         | cut -f 2 \\
         | sed 1d \\
-        | awk -v sample="${sample_id}" '{print sample, \$0}'; 
+        | awk -v sample="\${sample_id}" '{print sample, \$0}'
     done
     """
+
     // the above doesn't quite work yet, as it iterates over every sample in this file, and is not
     //responding to the sample_id being passed. However, it reads the file, so stopping here for the night. 
 

@@ -1,7 +1,6 @@
 #!/bin/bash
-#SBATCH --cpus-per-task=1 #should be number of cores you will be using
-#SBATCH --job-name=myworkflow
-
+##SBATCH --cpus-per-task=1 #should be number of cores you will be using
+##S#BATCH --job-name=myworkflow
 
 
 # if you run nextflow from some environmental module or conda env, load it here.
@@ -14,5 +13,6 @@ module load nextflow
 
 #nextflow run main.nf -w $TMPDIR/work -process.echo
 #rm -rf $TMPDIR/work
-nextflow run test_main_processes.nf -resume -process.echo 
+nextflow run test_main_processes.nf -resume -process.echo \
+    tee process.txt 
 #nextflow run main.nf -resume -process.echo
