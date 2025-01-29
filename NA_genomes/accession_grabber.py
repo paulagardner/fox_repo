@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import subprocess
 
-##first, start with acivating conda via module load python/anaconda/2024.06/3.12.4z
+##first, start with acivating conda via module load python/anaconda/2024.06/3.12.4
 
 # Define the columns to use for this run (you can modify this as needed)
 ENA_columns = {
