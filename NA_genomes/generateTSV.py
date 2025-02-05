@@ -2,12 +2,10 @@ import os
 import pandas as pd
 import subprocess
 
-##first, start with acivating conda via module load python/anaconda/2024.06/3.12.4
-
 # Load the ENA file
 ENA_file = pd.read_csv('filereport_read_run_PRJNA1158265_tsv.txt', sep='\t', encoding='utf-8')
 
-# Define columns
+# Define columns (mapping to ENA file columns)
 ENA_columns = {
     'ENA_file_id': 'library_name',
     'scientific_name': 'scientific_name'  # Organism name
@@ -26,13 +24,14 @@ def get_lane_number(file_path):
         print(f"Error extracting lane number from {file_path}: {e}")
         return "NA"
 
-# Find all downloaded .fastq.gz files
+# Find all downloaded .fastq.gz files and build a mapping based on library name
 file_mapping = {}
 for root, _, files in os.walk(download_dir):
     for file in files:
         if file.endswith(".fastq.gz"):
             full_path = os.path.join(root, file)
-            library_id = file.split("_")[0]  # Extract library_id from filename
+            # Use rsplit to extract the full library name by removing the trailing _1 or _2
+            library_id = file.rsplit('_', 1)[0]  # e.g. 'RM_S13-1169_WGSlib1bDI'
             sample_id = os.path.basename(os.path.dirname(full_path))  # Directory above the file
             if library_id not in file_mapping:
                 file_mapping[library_id] = {'sample_id': sample_id, 'files': []}
@@ -43,6 +42,7 @@ output_data = []
 for library_id, data in file_mapping.items():
     file_paths = data['files']
     sample_id = data['sample_id']
+    # Match the row in the ENA file based on the full library name
     matching_row = ENA_file[ENA_file[ENA_columns['ENA_file_id']] == library_id]
     organism = matching_row[ENA_columns['scientific_name']].values[0] if not matching_row.empty else "Unknown"
     
@@ -52,7 +52,7 @@ for library_id, data in file_mapping.items():
     
     output_data.append({
         'Sample_Name': sample_id,
-        'Library_ID': library_id,
+        'Library_ID': library_id,  # Now this reflects the full library name
         'Lane': lane,
         'Colour_Chemistry': 2,
         'SeqType': 'PE',

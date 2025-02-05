@@ -15,7 +15,7 @@ nextflow run nf-core/eager \
     -resume \
     --publish_dir_mode 'symlink' \
     --input inputFile.tsv \
-    --outdir /gpfs/data/bergstrom/paula/fox_repo/our_genomes/eager_results \
+    --outdir /gpfs/data/bergstrom/paula/fox_repo/NA_genomes/eager_results \
     --fasta /gpfs/data/bergstrom/ref/fox/mVulVul1/mVulVul1.fa \
     --fasta_index /gpfs/data/bergstrom/ref/fox/mVulVul1/mVulVul1.fa.fai \
     --seq_dict /gpfs/data/bergstrom/ref/fox/mVulVul1/mVulVul1.dict \
@@ -23,4 +23,4 @@ nextflow run nf-core/eager \
     --mapper bwamem \
     --skip_collapse \
     --skip_damage_calculation \
-    --skip_preseq \
+    --skip_preseq 

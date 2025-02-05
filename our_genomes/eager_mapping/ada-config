@@ -18,6 +18,12 @@ process {
     cpus = 64
     time = '48h'
     memory = '64G'
+  }
+
+  withName: markduplicates {
+    cpus = 1
+    time = '48h'
+    memory = '250G'
   
   }
 }
