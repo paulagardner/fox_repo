@@ -26,6 +26,20 @@ process {
     memory = '250G'
   
   }
+
+  withName: fetchngs {
+    cpus = 1
+    time = '24h'
+    memory = '10G'
+  
+  }
+
+  withName: qualimap {
+    cpus = 1
+    time = '24h'
+    memory = '64G'
+  }
+
 }
 
 
