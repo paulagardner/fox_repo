@@ -26,6 +26,18 @@ def extract_sample_from_multiqc(sample_str):
     else:
         return sample_str
 
+def get_group_dir(bam_path: Path) -> str:
+    """
+    Returns the directory name immediately preceding 'eager_results' in the BAM file's path.
+    If 'eager_results' is not found, returns the immediate parent directory.
+    """
+    parts = bam_path.parts
+    if "eager_results" in parts:
+        idx = parts.index("eager_results")
+        if idx > 0:
+            return parts[idx-1]
+    return str(bam_path.parent)
+
 # 1. Set the base directory (common root) containing both BAMs and multiqc files.
 base_dir = Path("/gpfs/home/xrq24scu/fox_repo")
 
@@ -46,7 +58,6 @@ for gr_file in gr_files:
         except ValueError as e:
             print("Header error in", gr_file, ":", e)
             continue
-
         for row in reader:
             if not row or len(row) <= max(sample_index, coverage_index):
                 continue
@@ -79,16 +90,18 @@ for bam_file in dedup_bam_files:
         bam_dict[sample_id] = bam_file
 
 # 4. Write output CSV with: sample, path, mean_coverage.
+#    Sorting output by the directory immediately above eager_results, then by filename.
 output_csv = "output.csv"
 with open(output_csv, "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["sample", "path", "mean_coverage"])
     
-    for sample_id, bam_file in bam_dict.items():
+    sorted_items = sorted(bam_dict.items(), key=lambda item: (get_group_dir(item[1]), str(item[1].name)))
+    for sample_id, bam_file in sorted_items:
         # Try the extracted sample_id from the two-token rule.
         mean_coverage = coverage_by_sample.get(sample_id)
         if not mean_coverage or mean_coverage == "":
-            # As a fallback, try using only the first token from the BAM file name.
+            # Fallback: try using only the first token
             alt_sample = bam_file.name.split('_')[0]
             mean_coverage = coverage_by_sample.get(alt_sample, "NA")
         writer.writerow([sample_id, str(bam_file), mean_coverage])
