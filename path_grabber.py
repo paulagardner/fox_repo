@@ -29,14 +29,14 @@ def extract_sample_from_multiqc(sample_str):
 def get_group_dir(bam_path: Path) -> str:
     """
     Returns the directory name immediately preceding 'eager_results' in the BAM file's path.
-    If 'eager_results' is not found, returns the immediate parent directory.
+    If 'eager_results' is not found, returns the immediate parent directory's name.
     """
     parts = bam_path.parts
     if "eager_results" in parts:
         idx = parts.index("eager_results")
         if idx > 0:
             return parts[idx-1]
-    return str(bam_path.parent)
+    return bam_path.parent.name
 
 # 1. Set the base directory (common root) containing both BAMs and multiqc files.
 base_dir = Path("/gpfs/home/xrq24scu/fox_repo")
@@ -90,13 +90,26 @@ for bam_file in dedup_bam_files:
         bam_dict[sample_id] = bam_file
 
 # 4. Write output CSV with: sample, path, mean_coverage.
-#    Sorting output by the directory immediately above eager_results, then by filename.
-output_csv = "output.csv"
+#    Sorting output by the directory immediately above eager_results (group) then by filename.
+output_csv = "all_bam_path_info.csv"
 with open(output_csv, "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["sample", "path", "mean_coverage"])
     
-    sorted_items = sorted(bam_dict.items(), key=lambda item: (get_group_dir(item[1]), str(item[1].name)))
+    # Create a sorted list of items.
+    sorted_items = sorted(
+        bam_dict.items(),
+        key=lambda item: (
+            get_group_dir(item[1]).lower(),
+            item[1].name.lower()
+        )
+    )
+    
+    # Debug: print group for each file
+    for sample_id, bam_file in sorted_items:
+        group = get_group_dir(bam_file)
+        print(f"Sample {sample_id} in group '{group}' from file {bam_file.name}")
+    
     for sample_id, bam_file in sorted_items:
         # Try the extracted sample_id from the two-token rule.
         mean_coverage = coverage_by_sample.get(sample_id)
