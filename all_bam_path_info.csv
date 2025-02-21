@@ -15,7 +15,6 @@ ORC_S18-2071,/gpfs/home/xrq24scu/fox_repo/NA_genomes/eager_results/merged_bams/i
 RM_S13-0649,/gpfs/home/xrq24scu/fox_repo/NA_genomes/eager_results/deduplication/RM_S13-0649_WGSlib1DI/RM_S13-0649_WGSlib1DI_rmdup.bam,20.5501
 RM_S13-2260,/gpfs/home/xrq24scu/fox_repo/NA_genomes/eager_results/merged_bams/initial/RM_S13-2260_udgnone_libmerged_rmdup.bam,18.8644
 RM_S13-2269,/gpfs/home/xrq24scu/fox_repo/NA_genomes/eager_results/deduplication/RM_S13-2269_WGSlib1DI/RM_S13-2269_WGSlib1DI_rmdup.bam,53.8278
-RUS_S12-0237,/gpfs/home/xrq24scu/fox_repo/NA_genomes/eager_results/merged_bams/initial/RUS_S12-0237_udgnone_libmerged_rmdup.bam,13.8561
 SN_S11-0008,/gpfs/home/xrq24scu/fox_repo/NA_genomes/eager_results/merged_bams/initial/SN_S11-0008_udgnone_libmerged_rmdup.bam,28.309
 WAC_S10-0511,/gpfs/home/xrq24scu/fox_repo/NA_genomes/eager_results/deduplication/WAC_S10-0511_WGSlib1DI/WAC_S10-0511_WGSlib1DI_rmdup.bam,25.996
 F12232,/gpfs/home/xrq24scu/fox_repo/our_genomes/eager_results/deduplication/F12_232/F12_232_rmdup.bam,54.5572
@@ -37,7 +36,6 @@ LIS935,/gpfs/home/xrq24scu/fox_repo/our_genomes/eager_results/deduplication/LIS_
 S080738,/gpfs/home/xrq24scu/fox_repo/our_genomes/eager_results/deduplication/S08_0738/S08_0738_rmdup.bam,2.3569
 S100038,/gpfs/home/xrq24scu/fox_repo/our_genomes/eager_results/deduplication/S10_0038/S10_0038_rmdup.bam,2.1276
 S120237,/gpfs/home/xrq24scu/fox_repo/our_genomes/eager_results/merged_bams/initial/S120237_udgnone_libmerged_rmdup.bam,36.4557
-S120237,/gpfs/home/xrq24scu/fox_repo/our_genomes/eager_results/deduplication/S12_0237/S12_0237_rmdup.bam,NA
 S121604,/gpfs/home/xrq24scu/fox_repo/our_genomes/eager_results/deduplication/S12_1604/S12_1604_rmdup.bam,7.1006
 S140424,/gpfs/home/xrq24scu/fox_repo/our_genomes/eager_results/deduplication/S14_0424/S14_0424_rmdup.bam,40.4867
 S142040,/gpfs/home/xrq24scu/fox_repo/our_genomes/eager_results/deduplication/S14_2040/S14_2040_rmdup.bam,1.1682
