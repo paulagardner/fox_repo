@@ -15,9 +15,9 @@ process {
   clusterOptions="-N 1 -p compute-64-512"
 
   withName: bwamem {
-    cpus = 64
-    time = '48h'
-    memory = '64G'
+    cpus = 16
+    time = '72h'
+    memory = '132G'
   }
 
   withName: markduplicates {

@@ -63,7 +63,7 @@ def get_group_from_path(path: Path) -> str:
         return "unknown"
 
 # 1. Set the base directory containing BAMs, multiqc files, and inputFile.tsv files.
-base_dir = Path("/gpfs/home/xrq24scu/fox_repo")
+base_dir = Path("/gpfs/data/bergstrom/paula/fox_repo")
 
 # 2. Gather coverage data from all multiqc output files.
 coverage_by_sample = {}
