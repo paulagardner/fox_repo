@@ -2,6 +2,7 @@ sample,path,mean_coverage
 15075,/gpfs/data/bergstrom/paula/fox_repo/Hasselgren_genomes/lane_duplicates/eager_results/deduplication/15075/15075_rmdup.bam,24.5164
 18005,/gpfs/data/bergstrom/paula/fox_repo/Hasselgren_genomes/lane_duplicates/eager_results/deduplication/18005/18005_rmdup.bam,20.7974
 18049,/gpfs/data/bergstrom/paula/fox_repo/Hasselgren_genomes/lane_duplicates/eager_results/deduplication/18049/18049_rmdup.bam,26.7889
+ZH_genome_ngs,/gpfs/data/bergstrom/paula/fox_repo/Lyu_genomes/eager_results/deduplication/genome_ngs/genome_ngs_rmdup.bam,55.3969
 GOLD000007,/gpfs/data/bergstrom/paula/fox_repo/Meadows_genomes/eager_results/deduplication/LGOLD000007/LGOLD000007_rmdup.bam,31.1893
 AK_S12-1159,/gpfs/data/bergstrom/paula/fox_repo/NA_genomes/eager_results/deduplication/AK_S12-1159_WGSlib1DI/AK_S12-1159_WGSlib1DI_rmdup.bam,26.6102
 ECAN_S14-0358,/gpfs/data/bergstrom/paula/fox_repo/NA_genomes/eager_results/merged_bams/initial/ECAN_S14-0358_udgnone_libmerged_rmdup.bam,18.1289
