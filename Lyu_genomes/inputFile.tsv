@@ -1,0 +1,2 @@
+Sample_Name	Library_ID	Lane	Colour_Chemistry	SeqType	Organism	Strandedness	UDG_Treatment	R1	R2	BAM
+ZH_genome_ngs	genome_ngs	NA	4	PE	Vulpes ferrilata	double	none	/gpfs/data/bergstrom/paula/fox_repo/Lyu_genomes/SRR15858295_1.fastq.gz	/gpfs/data/bergstrom/paula/fox_repo/Lyu_genomes/SRR15858295_2.fastq.gz	NA

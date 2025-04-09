@@ -1,0 +1,26 @@
+Sample_Name	Library_ID	Lane	Colour_Chemistry	SeqType	Organism	Strandedness	UDG_Treatment	R1	R2	BAM
+LAS_F01	LAS_F01_WGSlib1SI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/LAS_F01/LAS_F01_WGSlib1SI_1.fastq.gz	downloaded_files/LAS_F01/LAS_F01_WGSlib1SI_2.fastq.gz	NA
+LAS_F01	LAS_F01_WGSlib2DI	4	2	PE	Vulpes vulpes	double	none	downloaded_files/LAS_F01/LAS_F01_WGSlib2DI_1.fastq.gz	downloaded_files/LAS_F01/LAS_F01_WGSlib2DI_2.fastq.gz	NA
+ORC_S18-2068	ORC_S18-2068_WGSlib1DI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/ORC_S18-2068/ORC_S18-2068_WGSlib1DI_1.fastq.gz	downloaded_files/ORC_S18-2068/ORC_S18-2068_WGSlib1DI_2.fastq.gz	NA
+ORC_S18-2068	ORC_S18-2068_WGSlib2DI	4	2	PE	Vulpes vulpes	double	none	downloaded_files/ORC_S18-2068/ORC_S18-2068_WGSlib2DI_1.fastq.gz	downloaded_files/ORC_S18-2068/ORC_S18-2068_WGSlib2DI_2.fastq.gz	NA
+ORC_S17-2544	ORC_S17-2544_WGSlib1DI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/ORC_S17-2544/ORC_S17-2544_WGSlib1DI_1.fastq.gz	downloaded_files/ORC_S17-2544/ORC_S17-2544_WGSlib1DI_2.fastq.gz	NA
+ORC_S17-2544	ORC_S17-2544_WGSlib2DI	4	2	PE	Vulpes vulpes	double	none	downloaded_files/ORC_S17-2544/ORC_S17-2544_WGSlib2DI_1.fastq.gz	downloaded_files/ORC_S17-2544/ORC_S17-2544_WGSlib2DI_2.fastq.gz	NA
+ORC_S18-2069	ORC_S18-2069_WGSlib1DI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/ORC_S18-2069/ORC_S18-2069_WGSlib1DI_1.fastq.gz	downloaded_files/ORC_S18-2069/ORC_S18-2069_WGSlib1DI_2.fastq.gz	NA
+ORC_S18-2069	ORC_S18-2069_WGSlib2DI	4	2	PE	Vulpes vulpes	double	none	downloaded_files/ORC_S18-2069/ORC_S18-2069_WGSlib2DI_1.fastq.gz	downloaded_files/ORC_S18-2069/ORC_S18-2069_WGSlib2DI_2.fastq.gz	NA
+ECAN_S14-0358	ECAN_S14-0358_WGSlib1bDI	2	2	PE	Vulpes vulpes	double	none	downloaded_files/ECAN_S14-0358/ECAN_S14-0358_WGSlib1bDI_1.fastq.gz	downloaded_files/ECAN_S14-0358/ECAN_S14-0358_WGSlib1bDI_2.fastq.gz	NA
+ECAN_S14-0358	ECAN_S14-0358_WGSlib1aDI	2	2	PE	Vulpes vulpes	double	none	downloaded_files/ECAN_S14-0358/ECAN_S14-0358_WGSlib1aDI_1.fastq.gz	downloaded_files/ECAN_S14-0358/ECAN_S14-0358_WGSlib1aDI_2.fastq.gz	NA
+RUS_S12-0237	RUS_S12-0237_WGSlib1bDI	2	2	PE	Vulpes vulpes	double	none	downloaded_files/RUS_S12-0237/RUS_S12-0237_WGSlib1bDI_1.fastq.gz	downloaded_files/RUS_S12-0237/RUS_S12-0237_WGSlib1bDI_2.fastq.gz	NA
+RUS_S12-0237	RUS_S12-0237_WGSlib1aDI	2	2	PE	Vulpes vulpes	double	none	downloaded_files/RUS_S12-0237/RUS_S12-0237_WGSlib1aDI_1.fastq.gz	downloaded_files/RUS_S12-0237/RUS_S12-0237_WGSlib1aDI_2.fastq.gz	NA
+ORC_S13-2559	ORC_S13-2559_WGSlib1DI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/ORC_S13-2559/ORC_S13-2559_WGSlib1DI_1.fastq.gz	downloaded_files/ORC_S13-2559/ORC_S13-2559_WGSlib1DI_2.fastq.gz	NA
+RM_S13-0649	RM_S13-0649_WGSlib1DI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/RM_S13-0649/RM_S13-0649_WGSlib1DI_1.fastq.gz	downloaded_files/RM_S13-0649/RM_S13-0649_WGSlib1DI_2.fastq.gz	NA
+ORC_S18-2071	ORC_S18-2071_WGSlib2DI	4	2	PE	Vulpes vulpes	double	none	downloaded_files/ORC_S18-2071/ORC_S18-2071_WGSlib2DI_1.fastq.gz	downloaded_files/ORC_S18-2071/ORC_S18-2071_WGSlib2DI_2.fastq.gz	NA
+ORC_S18-2071	ORC_S18-2071_WGSlib1DI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/ORC_S18-2071/ORC_S18-2071_WGSlib1DI_1.fastq.gz	downloaded_files/ORC_S18-2071/ORC_S18-2071_WGSlib1DI_2.fastq.gz	NA
+RM_S13-2260	RM_S13-2260_WGSlib1aDI	2	2	PE	Vulpes vulpes	double	none	downloaded_files/RM_S13-2260/RM_S13-2260_WGSlib1aDI_1.fastq.gz	downloaded_files/RM_S13-2260/RM_S13-2260_WGSlib1aDI_2.fastq.gz	NA
+RM_S13-2260	RM_S13-2260_WGSlib1bDI	2	2	PE	Vulpes vulpes	double	none	downloaded_files/RM_S13-2260/RM_S13-2260_WGSlib1bDI_1.fastq.gz	downloaded_files/RM_S13-2260/RM_S13-2260_WGSlib1bDI_2.fastq.gz	NA
+WAC_S10-0511	WAC_S10-0511_WGSlib1DI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/WAC_S10-0511/WAC_S10-0511_WGSlib1DI_1.fastq.gz	downloaded_files/WAC_S10-0511/WAC_S10-0511_WGSlib1DI_2.fastq.gz	NA
+RM_S13-2269	RM_S13-2269_WGSlib1DI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/RM_S13-2269/RM_S13-2269_WGSlib1DI_1.fastq.gz	downloaded_files/RM_S13-2269/RM_S13-2269_WGSlib1DI_2.fastq.gz	NA
+LAS_F02	LAS_F02_WGSlib2DI	4	2	PE	Vulpes vulpes	double	none	downloaded_files/LAS_F02/LAS_F02_WGSlib2DI_1.fastq.gz	downloaded_files/LAS_F02/LAS_F02_WGSlib2DI_2.fastq.gz	NA
+LAS_F02	LAS_F02_WGSlib1DI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/LAS_F02/LAS_F02_WGSlib1DI_1.fastq.gz	downloaded_files/LAS_F02/LAS_F02_WGSlib1DI_2.fastq.gz	NA
+SN_S11-0008	SN_S11-0008_WGSlib1SI	1	2	PE	Vulpes vulpes	double	none	downloaded_files/SN_S11-0008/SN_S11-0008_WGSlib1SI_1.fastq.gz	downloaded_files/SN_S11-0008/SN_S11-0008_WGSlib1SI_2.fastq.gz	NA
+SN_S11-0008	SN_S11-0008_WGSlib2DI	4	2	PE	Vulpes vulpes	double	none	downloaded_files/SN_S11-0008/SN_S11-0008_WGSlib2DI_1.fastq.gz	downloaded_files/SN_S11-0008/SN_S11-0008_WGSlib2DI_2.fastq.gz	NA
+AK_S12-1159	AK_S12-1159_WGSlib1DI	2	2	PE	Vulpes vulpes	double	none	downloaded_files/AK_S12-1159/AK_S12-1159_WGSlib1DI_1.fastq.gz	downloaded_files/AK_S12-1159/AK_S12-1159_WGSlib1DI_2.fastq.gz	NA

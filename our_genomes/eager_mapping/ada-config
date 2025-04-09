@@ -1,0 +1,51 @@
+params {
+  config_profile_description = 'University of East Anglia'
+  config_profile_contact = 'Paula Gardner'
+publish_dir_mode = 'symlink'
+}
+ 
+singularity {
+  enabled = true
+  autoMounts = true
+}
+ 
+ 
+process {
+  executor = 'slurm'
+  clusterOptions="-N 1 -p compute-64-512"
+
+  withName: bwamem {
+    cpus = 16
+    time = '72h'
+    memory = '132G'
+  }
+
+  withName: markduplicates {
+    cpus = 1
+    time = '48h'
+    memory = '250G'
+  
+  }
+
+  withName: fetchngs {
+    cpus = 1
+    time = '24h'
+    memory = '10G'
+  
+  }
+
+  withName: qualimap {
+    cpus = 1
+    time = '24h'
+    memory = '64G'
+  }
+
+}
+
+
+ 
+params {
+  max_memory = 188.GB
+  max_cpus = 64
+  max_time = 128.h
+}

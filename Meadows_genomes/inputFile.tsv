@@ -1,0 +1,2 @@
+Sample_Name	Library_ID	Lane	Colour_Chemistry	SeqType	Organism	Strandedness	UDG_Treatment	R1	R2	BAM
+GOLD000007	LGOLD000007	NA	4	PE	canis lupus familaris	double	none	/gpfs/home/xrq24scu/fox_repo/Meadows_genomes/SRR16288996_1.fastq.gz	/gpfs/home/xrq24scu/fox_repo/Meadows_genomes/SRR16288996_2.fastq.gz	NA

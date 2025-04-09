@@ -1,0 +1,6 @@
+Sample_Name	Library_ID	Lane	Colour_Chemistry	SeqType	Organism	Strandedness	UDG_Treatment	R1	R2	BAM
+968	968	1	2	PE	Vulpes pallida	double	none	downloaded_files/968/SRR24040935_1.fastq.gz	downloaded_files/968/SRR24040935_2.fastq.gz	NA
+968	968	NA	2	PE	Vulpes pallida	double	none	downloaded_files/968/SRR24067123_1.fastq.gz	downloaded_files/968/SRR24067123_2.fastq.gz	NA
+VZ03	VZ03	NA	2	PE	Vulpes zerda	double	none	downloaded_files/VZ03/SRR24040932_1.fastq.gz	downloaded_files/VZ03/SRR24040932_2.fastq.gz	NA
+VZ03	VZ03	1	2	PE	Vulpes zerda	double	none	downloaded_files/VZ03/SRR24067122_1.fastq.gz	downloaded_files/VZ03/SRR24067122_2.fastq.gz	NA
+VR01	VR01	NA	2	PE	Vulpes rueppellii	double	none	downloaded_files/VR01/SRR24040960_1.fastq.gz	downloaded_files/VR01/SRR24040960_2.fastq.gz	NA
