@@ -1,0 +1,7 @@
+genotypename:  Vvulpes_plink_autosomal.bed
+snpname:       Vvulpes_plink_autosomal.bim
+indivname:     Vvulpes_plink_autosomal.fam
+evecoutname:   Vvulpes.pca.evec
+evaloutname:   Vvulpes.pca.eval
+numoutevec:    10
+altnormstyle:  NO

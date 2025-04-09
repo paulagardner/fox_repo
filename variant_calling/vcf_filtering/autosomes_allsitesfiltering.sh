@@ -1,7 +1,7 @@
 #!/bin/bash
 
 input_dir="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/genotypegvcf"
-output_dir="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/vcf_filtering"
+output_dir="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/vcf_filtering/autosomes"
 mkdir -p "$output_dir/slurmout"
 
 ####### Make thresholds file in this script so that it's always accurate to what is done 
@@ -41,7 +41,7 @@ for vcf in "$input_dir"/*.vcf.gz; do
            --output "$output_dir/slurmout/${vcf_name}.o" \
            --time=1-0 \
            --mem=4G \
-           --cpus-per-task=6 \
+           --cpus-per-task=7 \
            --partition=compute-64-512 \
            --wrap="bcftools +setGT $vcf  -- -t q -n . -i 'FMT/RGQ<20 | GQ<20' | \
                   /gpfs/data/bergstrom/sw/bin/recall-VCF-genotypes.pl --mode sampleDP --DPthresholds $thresholds_file | \
