@@ -1,6 +1,5 @@
 # --------- LOAD LIBRARIES ----------
-library(tidyverse) # for hpc: followed https://blog.zenggyu.com/posts/en/2018-01-29-installing-r-r-packages-e-g-tidyverse-and-rstudio-on-ubuntu-linux/index.html
-#module loaded curl/7.76.1/gcc in bash, then re-entered R
+library(tidyverse) # for hpc: followed https://blog.zenggyu.com/posts/en/2018-01-29-installing-r-r-packages-e.g-tidyverse-and-rstudio-on-ubuntu-linux/index.html
 library(googlesheets4)
 library(ggrepel)
 library(RColorBrewer)
@@ -12,6 +11,7 @@ library(gtable)
 # Load PCA eigenvector file
 pca <- read_tsv("/gpfs/bio/xrq24scu/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec")
 
+
 # Rename columns to PC1, PC2, etc.
 colnames(pca)[2:ncol(pca)] <- paste0("PC", 1:(ncol(pca)-1))
 
@@ -22,13 +22,21 @@ metadata <- read_sheet(sheet_url) %>%
   mutate(sample = as.character(sample))
 
 # Manually specify the continent order (adjust this order as needed)
-continent_order <- c( "Europe", "Africa", "WestAsia", "Asia","Americas") 
+continent_order <- c("Europe", "Africa", "WestAsia", "Asia", "Americas")
 
 # Reorder the 'continent' factor based on the custom order
 metadata$continent <- factor(metadata$continent, levels = continent_order)
 
+# Ensure 'region' is included in the metadata (you may need to adjust this if your sheet contains a 'region' column)
+# Assuming 'region' is part of the metadata after importing from Google Sheets
+# If not, you'll need to adjust how you load the region information.
+
 # Join metadata to PCA data
 pca_meta <- left_join(pca, metadata, by = "sample")
+# Remove specific samples from the PCA plot based on .txt file from ADMIXTURE filtering script. CHANGE THIS
+excluded_samples <- c("S080738", "S100038", "S142040")
+pca_meta_filtered <- pca_meta %>%
+  filter(!sample %in% excluded_samples)
 
 # Define continent color palette using ggplot2-style Set2
 continents <- unique(metadata$continent)
@@ -36,10 +44,10 @@ continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continents), na
 
 # ---------------------- PCA PLOT ----------------------
 
-# Plot PCA with consistent continent colors
-pca_plot <- ggplot(pca_meta, aes(x = PC1, y = PC2, color = continent)) +
+  # Plot PCA with consistent continent colors
+pca_plot <- ggplot(pca_meta_filtered, aes(x = PC1, y = PC2, color = continent)) +
   geom_point(size = 3) +
-  geom_text_repel(aes(label = sample), size = 3, box.padding = 0.35, max.overlaps = 23) +
+  geom_text_repel(aes(label = paste0(sample, " (", region, ")")), size = 3, box.padding = 0.5, max.overlaps = 35) +
   theme_minimal(base_size = 15) +
   labs(title = "PCA Plot by Continent", x = "Principal Component 1", y = "Principal Component 2") +
   theme(
@@ -55,12 +63,7 @@ pca_plot <- ggplot(pca_meta, aes(x = PC1, y = PC2, color = continent)) +
 print(pca_plot)
 ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large.png", plot = pca_plot, width = 12, height = 10)
 
-
-# Set the value of K for testing
-# ---------- SETUP ----------
-
-# Metadata and sample info are assumed loaded
-# metadata, continent_colors, continent_order must already exist
+######### ADMIXTURE PLOTS #########
 
 # Define the directory and base filenames
 q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness"
@@ -78,64 +81,56 @@ k_vals <- as.integer(gsub(".*\\.(\\d+)\\.Q$", "\\1", q_files))
 # Sort K values
 k_vals <- sort(k_vals)
 
+# Prepare metadata lookup outside of loop (since it doesn't change per K)
+continent_lookup <- metadata %>% select(sample, continent, region)  # Include 'region' here
+
 # ---------- LOOP OVER K VALUES ----------
 
 for (k_val in k_vals) {
 
   message("Processing K = ", k_val)
 
-  # File paths
+  # --- File Paths ---
   q_file <- paste0(q_file_base, ".", k_val, ".Q")
   output_file <- paste0(output_dir, "ADMIXTURE_plot_K", k_val, ".png")
 
-  # Load Q-matrix
-  qmat <- read.table(q_file)
-  colnames(qmat) <- paste0(1:k_val)
-  qmat <- qmat %>% mutate(ID = samples)
+  # --- Load Data ---
+  qmat <- read.table(q_file, col.names = as.character(1:k_val)) %>%
+    mutate(ID = samples)
 
-  # Join with metadata
-  qmat_meta <- left_join(qmat, metadata, by = c("ID" = "sample"))
+  # Join with metadata and arrange
+  qmat_meta <- left_join(qmat, metadata, by = c("ID" = "sample")) %>%
+    mutate(
+      continent = factor(continent, levels = continent_order),
+      Dominant_K = factor(
+        colnames(select(., matches("^\\d+$")))[max.col(select(., matches("^\\d+$")), ties.method = "first")],
+        levels = as.character(1:k_val)
+      )
+    ) %>%
+    arrange(continent, Dominant_K) %>%
+    mutate(ID = factor(ID, levels = ID))  # Lock individual order
 
-  # Enforce continent order
-  qmat_meta$continent <- factor(qmat_meta$continent, levels = continent_order)
+  # --- Prepare Data for Plotting ---
+  ancestry_cols <- paste0("X", 1:k_val)
 
-  # Sort individuals by continent and dominant ancestry
-  qmat_meta <- qmat_meta %>%
-    mutate(Dominant_K = colnames(select(., matches("^\\d+$")))[max.col(select(., matches("^\\d+$")), ties.method = "first")]) %>%
-    mutate(Dominant_K = factor(Dominant_K, levels = as.character(1:k_val))) %>%
-    arrange(continent, Dominant_K)
-
-  # Set ID factor levels
-  qmat_meta$ID <- factor(qmat_meta$ID, levels = qmat_meta$ID)
-
-  # Reshape to long format
-  ancestry_cols <- as.character(1:k_val)
   q_long <- qmat_meta %>%
     pivot_longer(cols = all_of(ancestry_cols), names_to = "Cluster", values_to = "Proportion")
 
-  # Assign palette
-  k_palette <- brewer.pal(max(k_val, 3), "Set1")[1:k_val]
+  id_levels <- levels(qmat_meta$ID)
 
   # Build label data
-  id_levels <- levels(qmat_meta$ID)
-  continent_lookup <- metadata %>% select(sample, continent)
-  continent_per_id <- left_join(data.frame(ID = id_levels), continent_lookup, by = c("ID" = "sample"))
+  label_df <- left_join(data.frame(ID = id_levels), continent_lookup, by = c("ID" = "sample")) %>%
+    mutate(
+      x = seq_along(ID),
+      y = -0.01,  # Control label vertical position
+      label = paste0(ID, " (", region, ")"),  # Use region here
+      color = continent_colors[continent]  # Keep the continent color for consistency
+    )
 
-  label_df <- data.frame(
-    x = seq_along(id_levels),
-    y = -0.05,   # Initial low position
-    label = paste0(id_levels, " (", continent_per_id$continent, ")"),
-    continent = continent_per_id$continent
-  )
-  label_df$color <- continent_colors[label_df$continent]
-  label_df <- label_df %>%
-    mutate(y_adjusted = y + 0.04)  # Adjust upward closer to bars
-
-  # ---------- BUILD PLOT ----------
-
+  # --- Build Plot Base ---
   admix_plot_base <- ggplot(q_long, aes(x = ID, y = Proportion, fill = Cluster)) +
     geom_bar(stat = "identity", width = 1, color = "black") +
-    scale_fill_manual(values = k_palette) +
+    scale_fill_manual(values = brewer.pal(max(k_val, 3), "Set1")[1:k_val]) +
     theme_minimal() +
     labs(
       title = paste("ADMIXTURE Plot K =", k_val),
@@ -155,11 +150,11 @@ for (k_val in k_vals) {
       axis.title.y = element_text(size = 14, margin = margin(r = 80))
     )
 
-  # Final plot with labels
+  # --- Add Labels ---
   admix_final <- admix_plot_base +
     geom_text(
       data = label_df,
-      aes(x = x, y = y_adjusted, label = label, color = continent),
+      aes(x = x, y = y, label = label, color = continent),
       angle = 45,
       hjust = 1,
       size = 2.5,
@@ -167,14 +162,11 @@ for (k_val in k_vals) {
     ) +
     scale_color_manual(values = continent_colors) +
     coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
-    theme(
-      legend.position = "right"
-    )
+    theme(legend.position = "right")
 
-  # ---------- SAVE PLOT ----------
-  print(admix_final)
+  # --- Save Plot ---
   ggsave(output_file, plot = admix_final, width = 12, height = 10)
 
   message("Saved plot for K = ", k_val)
 
-}
+}  # <- CORRECTLY closes the `for` loop
