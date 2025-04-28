@@ -57,129 +57,124 @@ ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large.png", plot = pca_plo
 
 
 # Set the value of K for testing
-# --------- LOOP OVER K VALUES ----------
+# ---------- SETUP ----------
 
-# Set the value of K for testing
-k_val <- 3
+# Metadata and sample info are assumed loaded
+# metadata, continent_colors, continent_order must already exist
 
-# Build file paths for K = 3
-q_file <- paste0("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness.", k_val, ".Q")
-output_file <- paste0("/gpfs/data/bergstrom/paula/fox_repo/plotting/ADMIXTURE_plot_K", k_val, ".png")
+# Define the directory and base filenames
+q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness"
+output_dir <- "/gpfs/data/bergstrom/paula/fox_repo/plotting/"
 
-# Load Q-matrix and assign sample IDs
-qmat <- read.table(q_file)
-colnames(qmat) <- paste0(1:k_val)
+# Load sample IDs
 samples <- read.table("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness_final_samples.txt", header = FALSE)$V1
-qmat <- qmat %>% mutate(ID = samples)
 
-# Join with metadata
-qmat_meta <- left_join(qmat, metadata, by = c("ID" = "sample"))
+# Find all available Q files (assumes filenames like "low_missingness.K.Q")
+q_files <- list.files(path = dirname(q_file_base), pattern = "low_missingness\\.\\d+\\.Q", full.names = TRUE)
 
-# Enforce continent factor order
-qmat_meta$continent <- factor(qmat_meta$continent, levels = continent_order)
+# Extract available K values
+k_vals <- as.integer(gsub(".*\\.(\\d+)\\.Q$", "\\1", q_files))
 
-# Sort individuals: first by continent, then by dominant ancestry
-qmat_meta <- qmat_meta %>%
-  mutate(Dominant_K = colnames(select(., matches("^\\d+$")))[max.col(select(., matches("^\\d+$")), ties.method = "first")]) %>%
-  mutate(Dominant_K = factor(Dominant_K, levels = as.character(1:k_val))) %>%
-  arrange(continent, Dominant_K)
+# Sort K values
+k_vals <- sort(k_vals)
 
-# Set ID factor levels to lock in this order
-qmat_meta$ID <- factor(qmat_meta$ID, levels = qmat_meta$ID)
+# ---------- LOOP OVER K VALUES ----------
 
-# Reshape to long format
-ancestry_cols <- as.character(1:k_val)
+for (k_val in k_vals) {
 
-q_long <- qmat_meta %>%
-  pivot_longer(cols = all_of(ancestry_cols), names_to = "Cluster", values_to = "Proportion")
+  message("Processing K = ", k_val)
 
-# Assign ggplot2 palette to clusters
-k_palette <- brewer.pal(max(k_val, 3), "Set1")[1:k_val]
+  # File paths
+  q_file <- paste0(q_file_base, ".", k_val, ".Q")
+  output_file <- paste0(output_dir, "ADMIXTURE_plot_K", k_val, ".png")
 
-# Build label info
-id_levels <- levels(qmat_meta$ID)
-continent_lookup <- metadata %>% select(sample, continent)
-continent_per_id <- left_join(data.frame(ID = id_levels), continent_lookup, by = c("ID" = "sample"))
+  # Load Q-matrix
+  qmat <- read.table(q_file)
+  colnames(qmat) <- paste0(1:k_val)
+  qmat <- qmat %>% mutate(ID = samples)
 
-label_df <- data.frame(
-  x = seq_along(id_levels),
-  y = -0.05,   # Adjusted position lower to avoid overlap
-  label = paste0(id_levels, " (", continent_per_id$continent, ")"),
-  continent = continent_per_id$continent
-)
-label_df$color <- continent_colors[label_df$continent]
+  # Join with metadata
+  qmat_meta <- left_join(qmat, metadata, by = c("ID" = "sample"))
 
+  # Enforce continent order
+  qmat_meta$continent <- factor(qmat_meta$continent, levels = continent_order)
 
-  # Base ADMIXTURE plot
-# Base ADMIXTURE plot with only outlines around bars
-admix_plot_base <- ggplot(q_long, aes(x = ID, y = Proportion, fill = Cluster)) +
-  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black outline to bars
-  scale_fill_manual(values = k_palette) +
-  theme_minimal() +
-  labs(title = paste("ADMIXTURE Plot K =", k_val),
-       x = "Individuals (grouped by continent)",
-       y = "Ancestry Proportion",
-       fill = "Cluster") +
-  theme(
-    axis.text.x = element_blank(),        # Remove x-axis labels
-    axis.ticks.x = element_blank(),       # Remove x-axis ticks
-    axis.line.x = element_blank(),        # Remove x-axis line
-    panel.grid.major = element_blank(),   # Remove major grid lines
-    panel.grid.minor = element_blank(),   # Remove minor grid lines
-    panel.border = element_rect(color = "black", fill = NA, size = 1),  # Add border around the panel
-    plot.margin = margin(20, 20, 40, 20)  # Adjust plot margins to prevent clipping
+  # Sort individuals by continent and dominant ancestry
+  qmat_meta <- qmat_meta %>%
+    mutate(Dominant_K = colnames(select(., matches("^\\d+$")))[max.col(select(., matches("^\\d+$")), ties.method = "first")]) %>%
+    mutate(Dominant_K = factor(Dominant_K, levels = as.character(1:k_val))) %>%
+    arrange(continent, Dominant_K)
+
+  # Set ID factor levels
+  qmat_meta$ID <- factor(qmat_meta$ID, levels = qmat_meta$ID)
+
+  # Reshape to long format
+  ancestry_cols <- as.character(1:k_val)
+  q_long <- qmat_meta %>%
+    pivot_longer(cols = all_of(ancestry_cols), names_to = "Cluster", values_to = "Proportion")
+
+  # Assign palette
+  k_palette <- brewer.pal(max(k_val, 3), "Set1")[1:k_val]
+
+  # Build label data
+  id_levels <- levels(qmat_meta$ID)
+  continent_lookup <- metadata %>% select(sample, continent)
+  continent_per_id <- left_join(data.frame(ID = id_levels), continent_lookup, by = c("ID" = "sample"))
+
+  label_df <- data.frame(
+    x = seq_along(id_levels),
+    y = -0.05,   # Initial low position
+    label = paste0(id_levels, " (", continent_per_id$continent, ")"),
+    continent = continent_per_id$continent
   )
+  label_df$color <- continent_colors[label_df$continent]
+  label_df <- label_df %>%
+    mutate(y_adjusted = y + 0.04)  # Adjust upward closer to bars
 
-  # Base ADMIXTURE plot with only outlines around bars and adjusted label spacing
-admix_plot_base <- ggplot(q_long, aes(x = ID, y = Proportion, fill = Cluster)) +
-  geom_bar(stat = "identity", width = 1, color = "black") +  # Add black outline to bars
-  scale_fill_manual(values = k_palette) +
-  theme_minimal() +
-  labs(title = paste("ADMIXTURE Plot K =", k_val),
-       x = "Individuals (grouped by continent)",
-       y = "Ancestry Proportion",
-       fill = "Cluster") +
-  theme(
-    axis.text.x = element_blank(),        # Remove x-axis labels
-    axis.ticks.x = element_blank(),       # Remove x-axis ticks
-    axis.line.x = element_blank(),        # Remove x-axis line
-    panel.grid.major = element_blank(),   # Remove major grid lines
-    panel.grid.minor = element_blank(),   # Remove minor grid lines
-    #panel.border = element_rect(color = "black", fill = NA, size = 1),  # Add border around the panel
-    plot.margin = margin(30, 20, 20, 20),  # Increase bottom margin to prevent overlap
-    plot.title = element_text(size = 20, hjust = 0.5, margin = margin(b = 80)),  # Adjust title size and bottom margin
-    axis.title.x = element_text(size = 14, margin = margin(t = 80)),  # Increase space between axis title and bars
-    axis.title.y = element_text(size = 14, margin = margin(r = 80))  # Increase space between y-axis title and bars
-  )
+  # ---------- BUILD PLOT ----------
 
+  admix_plot_base <- ggplot(q_long, aes(x = ID, y = Proportion, fill = Cluster)) +
+    geom_bar(stat = "identity", width = 1, color = "black") +
+    scale_fill_manual(values = k_palette) +
+    theme_minimal() +
+    labs(
+      title = paste("ADMIXTURE Plot K =", k_val),
+      x = "Individuals (grouped by continent)",
+      y = "Ancestry Proportion",
+      fill = "Cluster"
+    ) +
+    theme(
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.line.x = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      plot.margin = margin(30, 20, 20, 20),
+      plot.title = element_text(size = 20, hjust = 0.5, margin = margin(b = 80)),
+      axis.title.x = element_text(size = 14, margin = margin(t = 80)),
+      axis.title.y = element_text(size = 14, margin = margin(r = 80))
+    )
 
-label_df <- label_df %>%
-  mutate(y_adjusted = y + 0.06)  # Move closerto the admixture bar plots(positive = upward, negative = downward)
+  # Final plot with labels
+  admix_final <- admix_plot_base +
+    geom_text(
+      data = label_df,
+      aes(x = x, y = y_adjusted, label = label, color = continent),
+      angle = 45,
+      hjust = 1,
+      size = 2.5,
+      inherit.aes = FALSE
+    ) +
+    scale_color_manual(values = continent_colors) +
+    coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
+    theme(
+      legend.position = "right"
+    )
 
-# Final plot with labels
-# Final plot with labels
-admix_final <- admix_plot_base +
-  geom_text(
-    data = label_df,
-    aes(x = x,  y = y_adjusted, label = label, color = continent),
-    angle = 45,
-    hjust = 1,
-    size = 2.5,
-    inherit.aes = FALSE
-  ) +
-  scale_color_manual(values = continent_colors) +
-  coord_cartesian(clip = "off") +
-  theme(
-    legend.position = "right"
-  )
+  # ---------- SAVE PLOT ----------
+  print(admix_final)
+  ggsave(output_file, plot = admix_final, width = 12, height = 10)
 
+  message("Saved plot for K = ", k_val)
 
-# Save the plot
-print(admix_final)  # Ensure the plot is rendered in your session
-ggsave(output_file, plot = admix_final, width = 12, height = 10)
-
-message("Saved: ", output_file)
-
-
-
-
+}
