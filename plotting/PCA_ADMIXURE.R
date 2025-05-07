@@ -5,6 +5,7 @@ library(ggrepel)
 library(RColorBrewer)
 library(grid)
 library(gtable)
+library(dplyr)
 
 # ---------------------- IMPORT & PREP ----------------------
 
@@ -56,150 +57,88 @@ pca_plot <- ggplot(pca_meta_filtered, aes(x = PC1, y = PC2, color = continent)) 
 print(pca_plot)
 ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large.png", plot = pca_plot, width = 12, height = 10)
 
-######### ADMIXTURE PLOTS #########
 
-# Define directory and file paths
-q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness"
+
+#------------------------------------------ADMIXTURE PLOTS----------------------------------------------
+
+########## ADMIXTURE PLOTS #########
+
+# Define file paths
+q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness"
 output_dir <- "/gpfs/data/bergstrom/paula/fox_repo/plotting/"
 
-# Load sample IDs
-samples <- read.table("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness_final_samples.txt", header = FALSE)$V1
+# Read sample order
+order_df <- read.table("/gpfs/data/bergstrom/paula/fox_repo/plotting/order.tsv", header = FALSE, sep = "\t")
+colnames(order_df) <- c("sample", "region", "continent")
 
-# Find all available Q files
-q_files <- list.files(path = dirname(q_file_base), pattern = "low_missingness\\.\\d+\\.Q", full.names = TRUE)
+# Read final list of ADMIXTURE samples
+final_sample_list <- read.table("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness_final_samples.txt", header = FALSE)$V1
+samples <- order_df$sample[order_df$sample %in% final_sample_list]
 
-# Extract and sort K values
+# Filter and arrange metadata
+metadata_filtered <- metadata %>%
+  filter(sample %in% samples) %>%
+  arrange(match(sample, samples))
+
+# Read Q matrix files
+q_files <- list.files(path = dirname(q_file_base), pattern = "lowcoverage_missingness\\.\\d+\\.Q", full.names = TRUE)
 k_vals <- sort(as.integer(gsub(".*\\.(\\d+)\\.Q$", "\\1", q_files)))
 
-# Metadata lookup (doesn't change per K)
-continent_lookup <- metadata %>% select(sample, continent, region)
-
-# ---------- LOOP OVER K VALUES ----------
-# Loop over K values
-# --- Loop Over K Values ---
 for (k_val in k_vals) {
-
   message("Processing K = ", k_val)
 
-  # --- File Paths ---
+  # File paths
   q_file <- paste0(q_file_base, ".", k_val, ".Q")
   output_file <- paste0(output_dir, "ADMIXTURE_plot_K", k_val, ".png")
-  output_file_alt <- paste0(output_dir, "ADMIXTURE_plot_K", k_val, "_byAncestry.png")
 
-  # --- Load Data ---
-  qmat <- read.table(q_file, col.names = paste0("X", 1:k_val)) %>%
-    mutate(ID = samples)
+  # Read Q matrix
+  qmat <- read.table(q_file, header = FALSE)
+  colnames(qmat) <- paste0("X", 1:k_val)
 
-  # --- Original Plot: Reorder by Continent ---
-  qmat_meta_original <- left_join(qmat, metadata, by = c("ID" = "sample")) %>%
-    mutate(
-      continent = factor(continent, levels = continent_order)  # Reorder by continent only
+  # Combine with sample names
+  qmat_ordered <- bind_cols(tibble(sample = samples), qmat)
+
+  # Reshape and enforce factor levels
+  q_long <- qmat_ordered %>%
+    pivot_longer(
+      cols = starts_with("X"),
+      names_to = "Cluster",
+      values_to = "Proportion"
     ) %>%
-    arrange(continent) %>%  # Only arrange by continent
-    mutate(ID = factor(ID, levels = ID))  # Lock individual order
-
-  qmat_meta_original <- left_join(qmat, metadata, by = c("ID" = "sample")) %>%
-  mutate(
-    continent = factor(continent, levels = continent_order)  # Reorder by continent only
-  ) %>%
-  arrange(continent, ID) %>%  # First arrange by continent, then by ID
-  mutate(ID = factor(ID, levels = ID))  # Lock individual order
-
-
-  # --- Ancestry Plot: Reorder by Dominant Ancestry ---
-  ancestry_cols <- paste0("X", 1:k_val)
-
-  qmat_meta_ancestry <- left_join(qmat, metadata, by = c("ID" = "sample")) %>%
     mutate(
-      continent = factor(continent, levels = continent_order)  # Reorder by continent
-    ) %>%
-    # Calculate Dominant Ancestry Dynamically for Each K
-    mutate(
-      Dominant_K = as.character(apply(select(., all_of(ancestry_cols)), 1, function(x) {
-        which.max(x)  # Identify the index of the maximum ancestry proportion
-      })),
-      dominant_prop = apply(select(., all_of(ancestry_cols)), 1, max)  # Store the dominant proportion
-    ) %>%
-    arrange(Dominant_K, desc(dominant_prop)) %>%  # First by dominant ancestry, then by dominant proportion
-    mutate(ID = factor(ID, levels = ID))  # Lock this new order
-
-  ##################
-  # Original Plot (Ordered by Continent)
-  ##################
-  
-  q_long_original <- qmat_meta_original %>%
-    pivot_longer(cols = all_of(ancestry_cols), names_to = "Cluster", values_to = "Proportion") %>%
-    mutate(ID = factor(ID, levels = qmat_meta_original$ID[order(qmat_meta_original$continent)]))  # Reorder by continent
-
-  label_df <- left_join(data.frame(ID = samples), continent_lookup, by = c("ID" = "sample")) %>%
-    mutate(
-      x = seq_along(ID),
-      y = -0.01,  # Control label vertical position
-      label = paste0(ID, " (", region, ")"),
-      color = continent_colors[continent]  # Keep the continent color for consistency
+      sample = factor(sample, levels = samples),
+      Cluster = factor(Cluster, levels = paste0("X", 1:k_val))  # Important: fix stacking order
     )
 
+  # Set fill colors for clusters
+  fill_colors <- setNames(brewer.pal(max(k_val, 3), "Paired"), paste0("X", 1:k_val))
 
-  admix_plot_base <- ggplot(q_long_original, aes(x = ID, y = Proportion, fill = Cluster)) +
-    geom_bar(stat = "identity", width = 1, color = "black") +
-    scale_fill_manual(values = brewer.pal(max(k_val, 3), "Set1")[1:k_val]) +
-    theme_minimal() +
-    labs(
-      title = paste("ADMIXTURE Plot K =", k_val, "- Original Sample Order"),
-      x = "Individuals (grouped by continent)",
-      y = "Ancestry Proportion",
-      fill = "Cluster"
-    ) +
-    theme(
-      axis.text.x = element_blank(),
-      axis.ticks.x = element_blank(),
-      axis.line.x = element_blank(),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank(),
-      plot.margin = margin(30, 20, 20, 20),
-      plot.title = element_text(size = 20, hjust = 0.5, margin = margin(b = 80)),
-      axis.title.x = element_text(size = 14, margin = margin(t = 80)),
-      axis.title.y = element_text(size = 14, margin = margin(r = 80))
+  # Create label metadata
+  label_df <- order_df %>%
+    filter(sample %in% samples) %>%
+    mutate(
+      sample = factor(sample, levels = samples),
+      label = paste0(sample, " (", region, ")")
     )
 
-  admix_final <- admix_plot_base +
+  # Plot
+  admix_final <- ggplot(q_long, aes(x = sample, y = Proportion, fill = Cluster)) +
+    geom_col(width = 1, color = "black") +
     geom_text(
       data = label_df,
-      aes(x = x, y = y, label = label, color = continent),
+      aes(x = sample, y = -0.01, label = label, color = continent),
+      inherit.aes = FALSE,
       angle = 45,
       hjust = 1,
-      size = 2.5,
-      inherit.aes = FALSE
+      size = 2.5
     ) +
+    scale_fill_manual(values = fill_colors) +
     scale_color_manual(values = continent_colors) +
     coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
-    theme(legend.position = "right")
-
-  ggsave(output_file, plot = admix_final, width = 12, height = 10)
-  message("Saved original plot for K = ", k_val)
-
-  ##################
-  # By Ancestry Plot (Ordered by Dominant Ancestry)
-  ##################
-
-  q_long_ancestry <- qmat_meta_ancestry %>%
-    pivot_longer(cols = all_of(ancestry_cols), names_to = "Cluster", values_to = "Proportion")  # Already ordered by Dominant_K
-
-  label_df_alt <- left_join(data.frame(ID = levels(qmat_meta_ancestry$ID)), continent_lookup, by = c("ID" = "sample")) %>%
-    mutate(
-      x = seq_along(ID),
-      y = -0.01,
-      label = paste0(ID, " (", region, ")"),
-      color = continent_colors[continent]
-    )
-
-  admix_plot_base_alt <- ggplot(q_long_ancestry, aes(x = ID, y = Proportion, fill = Cluster)) +
-    geom_bar(stat = "identity", width = 1, color = "black") +
-    scale_fill_manual(values = brewer.pal(max(k_val, 3), "Set1")[1:k_val]) +
     theme_minimal() +
     labs(
-      title = paste("ADMIXTURE Plot K =", k_val, "- Ordered by Dominant Ancestry and Proportion"),
-      x = "Individuals (grouped by ancestry)",
+      title = paste("ADMIXTURE Plot K =", k_val),
+      x = "Samples",
       y = "Ancestry Proportion",
       fill = "Cluster"
     ) +
@@ -212,23 +151,18 @@ for (k_val in k_vals) {
       plot.margin = margin(30, 20, 20, 20),
       plot.title = element_text(size = 20, hjust = 0.5, margin = margin(b = 80)),
       axis.title.x = element_text(size = 14, margin = margin(t = 80)),
-      axis.title.y = element_text(size = 14, margin = margin(r = 80))
+      axis.title.y = element_text(size = 14, margin = margin(r = 80)),
+      legend.position = "right"
     )
 
-  admix_final_alt <- admix_plot_base_alt +
-    geom_text(
-      data = label_df_alt,
-      aes(x = x, y = y, label = label, color = continent),
-      angle = 45,
-      hjust = 1,
-      size = 2.5,
-      inherit.aes = FALSE
-    ) +
-    scale_color_manual(values = continent_colors) +
-    coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
-    theme(legend.position = "right")
+  # Save plot
+  ggsave(output_file, plot = admix_final, width = 12, height = 10)
+  message("Saved ADMIXTURE plot for K = ", k_val)
+}
 
-  ggsave(output_file_alt, plot = admix_final_alt, width = 12, height = 10)
-  message("Saved ancestry-ordered plot for K = ", k_val)
+# Optional: diagnostic sample order check
+order_check_plot <- ggplot(q_long, aes(x = sample, y = Proportion, fill=Cluster)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90))
 
-}  # <- Close loop
+ggsave("/gpfs/data/bergstrom/paula/fox_repo/plotting/sample_order_check.png", plot = order_check_plot, width = 12, height = 4)
