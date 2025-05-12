@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import pandas as pd
 from collections import defaultdict
+import pysam  # <-- added
 
 # Base directory
 base_dir = Path("/gpfs/data/bergstrom/paula/fox_repo")
@@ -54,6 +55,27 @@ def find_bam_path(bam_filename, base_dir):
     print(f"Resolved {bam_filename} to {matches[0]}")
     return matches[0]
 
+
+# Extract sample name from BAM read group
+def get_sample_name_from_bam(bam_path):
+    try:
+        bam = pysam.AlignmentFile(bam_path, "rb")
+        read_groups = bam.header.get('RG', [])
+        if not read_groups:
+            print(f"Warning: No read group (RG) found in BAM header: {bam_path}")
+            return None
+        # Get first RG SM tag
+        sample_name = read_groups[0].get('SM')
+        if sample_name:
+            return sample_name
+        else:
+            print(f"Warning: No SM tag in read group for BAM: {bam_path}")
+            return None
+    except Exception as e:
+        print(f"Error reading BAM file {bam_path}: {e}")
+        return None
+
+
 # Process coverage files
 coverage_results = []
 for path in get_prioritized_files(coverage_file):
@@ -62,7 +84,7 @@ for path in get_prioritized_files(coverage_file):
         df = pd.read_csv(path, sep="\t")
         print(f"  Columns found: {list(df.columns)}")
         if {'Sample', 'bam_file', 'mean_coverage'}.issubset(df.columns):
-            df_subset = df[['Sample', 'mean_coverage', 'bam_file']].copy()
+            df_subset = df[['mean_coverage', 'bam_file']].copy()
             print(f"  Number of rows before BAM resolution: {len(df_subset)}")
 
             # Get base directory above multiqc_data
@@ -73,7 +95,14 @@ for path in get_prioritized_files(coverage_file):
                 lambda x: find_bam_path(x, base_dir)
             )
 
-            print(f"  Number of rows after BAM resolution: {df_subset['bam_file'].notna().sum()} (non-null)")
+            # Drop rows without resolved BAMs
+            df_subset = df_subset.dropna(subset=['bam_file'])
+
+            # Extract sample name from BAM
+            df_subset['Sample'] = df_subset['bam_file'].apply(get_sample_name_from_bam)
+            df_subset = df_subset.dropna(subset=['Sample'])
+
+            print(f"  Number of rows after BAM + sample resolution: {len(df_subset)}")
             coverage_results.append(df_subset)
         else:
             print(f"Warning: Required columns missing in {path}")
@@ -83,11 +112,11 @@ for path in get_prioritized_files(coverage_file):
 # Combine coverage
 if coverage_results:
     combined_df = pd.concat(coverage_results, ignore_index=True)
-    print(f"\nCombined rows before dropna: {len(combined_df)}")
+    print(f"\nCombined rows before deduplication: {len(combined_df)}")
 
-    # Drop rows where bam_file could not be resolved
-    combined_df = combined_df.dropna(subset=['bam_file'])
-    print(f"Rows after dropna: {len(combined_df)}")
+    # Reorder columns as Sample, bam_file, mean_coverage
+    combined_df = combined_df[['Sample', 'bam_file', 'mean_coverage']]
+
 
     # Drop duplicates
     before_dedup = len(combined_df)
