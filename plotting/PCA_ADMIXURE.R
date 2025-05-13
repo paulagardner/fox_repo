@@ -31,6 +31,8 @@ pca_meta <- left_join(pca, metadata, by = "sample")
 
 # Remove specific samples from PCA plot (based on ADMIXTURE filtering script)
 excluded_samples <- readLines("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness_removed_samples.txt")
+excluded_samples <- c(excluded_samples, "YPI1082")
+excluded_samples
 
 pca_meta_filtered <- pca_meta %>%
   filter(!sample %in% excluded_samples)
@@ -59,72 +61,77 @@ pca_plot <- ggplot(pca_meta_filtered, aes(x = PC1, y = PC2, color = continent)) 
 print(pca_plot)
 ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large.png", plot = pca_plot, width = 12, height = 10)
 
-# ---------------------- ADMIXTURE PLOTS ----------------------
 
-q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness/"
+library(tidyverse)
+library(RColorBrewer)
+
+# Paths
+q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/"
 output_dir <- "/gpfs/data/bergstrom/paula/fox_repo/plotting/"
 
-#made this by manually manipulating google sheets info
-df <- read.table("/gpfs/data/bergstrom/paula/fox_repo/plotting/order.tsv", sep = "\t", header = FALSE, stringsAsFactors = FALSE)
+# Read sample metadata and filter
+df <- read.table(file.path(output_dir, "order.tsv"), sep = "\t", header = FALSE, stringsAsFactors = FALSE)
 colnames(df) <- c("sample", "region", "continent")
+df
 
-
-# Read the sample IDs to exclude
-excluded_samples <- readLines("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness_removed_samples.txt")
-excluded_samples
-
-# Filter out the excluded samples, preserving order
+###we already do this up above
+excluded_samples <- readLines(file.path(q_file_base, "lowcoverage_missingness_removed_samples.txt"))
 df_filtered <- df[!(df$sample %in% excluded_samples), ]
 df_filtered
-seq_len(nrow(df_filtered))
-df_filtered
 
+# Read final sample list that matches Q file row order
+final_samples <- readLines(file.path(q_file_base, "lowcoverage_missingness_final_samples.txt"))
+final_samples <- final_samples[final_samples %in% df_filtered$sample]
 
-q_file <- read.table("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness.3.Q")
+# Get list of all .Q files and extract K values
+q_files <- list.files(q_file_base, pattern = "lowcoverage_missingness\\.\\d+\\.Q$", full.names = TRUE)
+k_values <- as.integer(str_extract(basename(q_files), "(?<=\\.)\\d+(?=\\.Q)"))
 
-q_file <- q_file %>%
-  mutate(sample = df_filtered$sample,
-         region = df_filtered$region,
-         continent = df_filtered$continent,
-         row_order=row_number())
+# Color palette (adapt dynamically if needed)
+max_k <- max(k_values)
+color_pal <- RColorBrewer::brewer.pal(min(12, max_k), "Paired")
+continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(unique(df_filtered$continent)), name = "Set2"),
+                             unique(df_filtered$continent))
 
-q_file
-
-# Pivot without renaming the columns
-kdf2 <- q_file %>%
-  pivot_longer(
-    cols = -c(sample, region, continent, row_order),
-    names_to = "popGroup",
-    values_to = "prop"
-  ) %>%
-  mutate(
-    popGroup = as.integer(factor(popGroup, levels = unique(popGroup)))  # e.g. V1 → 1, etc.
-  ) %>%
-  arrange(row_order, popGroup) %>%  # preserve sample order
-  select(sample, continent, prop, region, popGroup)  # final format
-kdf2
-
-kdf2 <- kdf2 %>%
-  mutate(popGroup = as.factor(popGroup))
-
-
-## Optional: arrange by sample and population group
-####kdf2 <- kdf2 %>% arrange(sample, popGroup)
-
-#fill_colors <- setNames(brewer.pal(max(3, 3), "Paired"), paste0("X", 1:3))
-fill_colors <- setNames(brewer.pal(3, "Paired"), as.character(1:3))
-
-samples <- df_filtered$sample  # or a subset of it
-label_df <- df_filtered %>%
-    filter(sample %in% samples) %>%
+# Loop through each K and create plot
+for (i in seq_along(q_files)) {
+  q_file_path <- q_files[i]
+  k <- k_values[i]
+  
+  # Read Q file
+  q_file <- read.table(q_file_path, header = FALSE)
+  q_file$sample <- final_samples
+  
+  # Merge with ordered metadata
+  q_merged <- left_join(df_filtered, q_file, by = "sample")
+  stopifnot(nrow(q_merged) == nrow(df_filtered))
+  
+  # Melt and prepare long-format data
+  kdf2 <- q_merged %>%
+    mutate(row_order = row_number()) %>%
+    pivot_longer(
+      cols = starts_with("V"),
+      names_to = "popGroup",
+      values_to = "prop"
+    ) %>%
     mutate(
-      sample = factor(sample, levels = samples),
+      popGroup = as.integer(str_remove(popGroup, "V")),
+      sample = factor(sample, levels = df_filtered$sample),
+      popGroup = as.factor(popGroup)
+    )
+  
+  # Label data
+  label_df <- df_filtered %>%
+    mutate(
+      sample = factor(sample, levels = df_filtered$sample),
       label = paste0(sample, " (", region, ")")
     )
-label_df
-
-
-admix_final <- ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
+  
+  # Colors for this K
+  fill_colors <- setNames(color_pal[seq_len(k)], as.character(seq_len(k)))
+  
+  # Plot
+  admix_final <- ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
     geom_col(width = 1, color = "black") +
     geom_text(
       data = label_df,
@@ -139,7 +146,7 @@ admix_final <- ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
     coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
     theme_minimal() +
     labs(
-      title = paste("ADMIXTURE Plot K =", 3),
+      title = paste("ADMIXTURE Plot K =", k),
       x = "Samples",
       y = "Ancestry Proportion",
       fill = "Cluster"
@@ -156,9 +163,11 @@ admix_final <- ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
       axis.title.y = element_text(size = 14, margin = margin(r = 80)),
       legend.position = "right"
     )
-
-  # Save plot
-  output_file <- paste0(output_dir, "ADMIXTURE_plot_K", 3, ".png")
+  
+  # Save
+  output_file <- file.path(output_dir, paste0("admixplot", k, ".png"))
   ggsave(output_file, plot = admix_final, width = 12, height = 10)
-  message("Saved ADMIXTURE plot for K = ", k_val)
+  message("Saved ADMIXTURE plot for K = ", k)
 }
+
+
