@@ -99,12 +99,31 @@ for (i in seq_along(q_files)) {
   k <- k_values[i]
   
   # Read Q file
+  # Read Q file
   q_file <- read.table(q_file_path, header = FALSE)
-  q_file$sample <- final_samples
-  
-  # Merge with ordered metadata
-  q_merged <- left_join(df_filtered, q_file, by = "sample")
-  stopifnot(nrow(q_merged) == nrow(df_filtered))
+
+  # Get original sample names for Q file row order
+  q_sample_names <- readLines(file.path(q_file_base, "lowcoverage_missingness_final_samples.txt"))
+
+  # Combine default exclusions + manual ones
+  manual_exclusions <- c("YPI1082")  # Add more manually if needed
+  excluded_samples <- unique(c(
+    readLines(file.path(q_file_base, "lowcoverage_missingness_removed_samples.txt")),
+    manual_exclusions
+  ))
+
+  # Remove excluded samples from Q matrix and sample list
+  keep_indices <- !(q_sample_names %in% excluded_samples)
+  q_file <- q_file[keep_indices, ]
+  q_sample_names <- q_sample_names[keep_indices]
+  q_file$sample <- q_sample_names
+
+  # Filter metadata to match Q file
+  df_filtered_q <- df_filtered[df_filtered$sample %in% q_sample_names, ]
+
+  # Merge with metadata
+  q_merged <- left_join(df_filtered_q, q_file, by = "sample")
+  stopifnot(nrow(q_merged) == nrow(df_filtered_q))
   
   # Melt and prepare long-format data
   kdf2 <- q_merged %>%
