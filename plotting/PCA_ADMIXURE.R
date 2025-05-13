@@ -10,7 +10,8 @@ library(dplyr)
 # ---------------------- IMPORT & PREP ----------------------
 
 # Load PCA eigenvector file
-pca <- read_tsv("/gpfs/bio/xrq24scu/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec")
+#pca <- read_tsv("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec")
+pca <- read_tsv("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers_tidy.evec")
 
 # Rename columns to PC1, PC2, etc.
 colnames(pca)[2:ncol(pca)] <- paste0("PC", 1:(ncol(pca) - 1))
@@ -29,10 +30,11 @@ metadata$continent <- factor(metadata$continent, levels = continent_order)
 pca_meta <- left_join(pca, metadata, by = "sample")
 
 # Remove specific samples from PCA plot (based on ADMIXTURE filtering script)
-excluded_samples <- c("S080738", "S100038", "S142040")
+excluded_samples <- readLines("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness_removed_samples.txt")
+
 pca_meta_filtered <- pca_meta %>%
   filter(!sample %in% excluded_samples)
-
+pca_meta_filtered
 # Define color palette for continents
 continents <- unique(metadata$continent)
 continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continents), name = "Set2"), continents)
@@ -57,72 +59,72 @@ pca_plot <- ggplot(pca_meta_filtered, aes(x = PC1, y = PC2, color = continent)) 
 print(pca_plot)
 ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large.png", plot = pca_plot, width = 12, height = 10)
 
+# ---------------------- ADMIXTURE PLOTS ----------------------
 
-
-#------------------------------------------ADMIXTURE PLOTS----------------------------------------------
-
-########## ADMIXTURE PLOTS #########
-
-# Define file paths
-q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness"
+q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness/"
 output_dir <- "/gpfs/data/bergstrom/paula/fox_repo/plotting/"
 
-# Read sample order
-order_df <- read.table("/gpfs/data/bergstrom/paula/fox_repo/plotting/order.tsv", header = FALSE, sep = "\t")
-colnames(order_df) <- c("sample", "region", "continent")
+#made this by manually manipulating google sheets info
+df <- read.table("/gpfs/data/bergstrom/paula/fox_repo/plotting/order.tsv", sep = "\t", header = FALSE, stringsAsFactors = FALSE)
+colnames(df) <- c("sample", "region", "continent")
 
-# Read final list of ADMIXTURE samples
-final_sample_list <- read.table("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness_final_samples.txt", header = FALSE)$V1
-samples <- order_df$sample[order_df$sample %in% final_sample_list]
 
-# Filter and arrange metadata
-metadata_filtered <- metadata %>%
-  filter(sample %in% samples) %>%
-  arrange(match(sample, samples))
+# Read the sample IDs to exclude
+excluded_samples <- readLines("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness_removed_samples.txt")
+excluded_samples
 
-# Read Q matrix files
-q_files <- list.files(path = dirname(q_file_base), pattern = "lowcoverage_missingness\\.\\d+\\.Q", full.names = TRUE)
-k_vals <- sort(as.integer(gsub(".*\\.(\\d+)\\.Q$", "\\1", q_files)))
+# Filter out the excluded samples, preserving order
+df_filtered <- df[!(df$sample %in% excluded_samples), ]
+df_filtered
+seq_len(nrow(df_filtered))
+df_filtered
 
-for (k_val in k_vals) {
-  message("Processing K = ", k_val)
 
-  # File paths
-  q_file <- paste0(q_file_base, ".", k_val, ".Q")
-  output_file <- paste0(output_dir, "ADMIXTURE_plot_K", k_val, ".png")
+q_file <- read.table("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/lowcoverage_missingness.3.Q")
 
-  # Read Q matrix
-  qmat <- read.table(q_file, header = FALSE)
-  colnames(qmat) <- paste0("X", 1:k_val)
+q_file <- q_file %>%
+  mutate(sample = df_filtered$sample,
+         region = df_filtered$region,
+         continent = df_filtered$continent,
+         row_order=row_number())
 
-  # Combine with sample names
-  qmat_ordered <- bind_cols(tibble(sample = samples), qmat)
+q_file
 
-  # Reshape and enforce factor levels
-  q_long <- qmat_ordered %>%
-    pivot_longer(
-      cols = starts_with("X"),
-      names_to = "Cluster",
-      values_to = "Proportion"
-    ) %>%
-    mutate(
-      sample = factor(sample, levels = samples),
-      Cluster = factor(Cluster, levels = paste0("X", 1:k_val))  # Important: fix stacking order
-    )
+# Pivot without renaming the columns
+kdf2 <- q_file %>%
+  pivot_longer(
+    cols = -c(sample, region, continent, row_order),
+    names_to = "popGroup",
+    values_to = "prop"
+  ) %>%
+  mutate(
+    popGroup = as.integer(factor(popGroup, levels = unique(popGroup)))  # e.g. V1 → 1, etc.
+  ) %>%
+  arrange(row_order, popGroup) %>%  # preserve sample order
+  select(sample, continent, prop, region, popGroup)  # final format
+kdf2
 
-  # Set fill colors for clusters
-  fill_colors <- setNames(brewer.pal(max(k_val, 3), "Paired"), paste0("X", 1:k_val))
+kdf2 <- kdf2 %>%
+  mutate(popGroup = as.factor(popGroup))
 
-  # Create label metadata
-  label_df <- order_df %>%
+
+## Optional: arrange by sample and population group
+####kdf2 <- kdf2 %>% arrange(sample, popGroup)
+
+#fill_colors <- setNames(brewer.pal(max(3, 3), "Paired"), paste0("X", 1:3))
+fill_colors <- setNames(brewer.pal(3, "Paired"), as.character(1:3))
+
+samples <- df_filtered$sample  # or a subset of it
+label_df <- df_filtered %>%
     filter(sample %in% samples) %>%
     mutate(
       sample = factor(sample, levels = samples),
       label = paste0(sample, " (", region, ")")
     )
+label_df
 
-  # Plot
-  admix_final <- ggplot(q_long, aes(x = sample, y = Proportion, fill = Cluster)) +
+
+admix_final <- ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
     geom_col(width = 1, color = "black") +
     geom_text(
       data = label_df,
@@ -137,7 +139,7 @@ for (k_val in k_vals) {
     coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
     theme_minimal() +
     labs(
-      title = paste("ADMIXTURE Plot K =", k_val),
+      title = paste("ADMIXTURE Plot K =", 3),
       x = "Samples",
       y = "Ancestry Proportion",
       fill = "Cluster"
@@ -156,13 +158,7 @@ for (k_val in k_vals) {
     )
 
   # Save plot
+  output_file <- paste0(output_dir, "ADMIXTURE_plot_K", 3, ".png")
   ggsave(output_file, plot = admix_final, width = 12, height = 10)
   message("Saved ADMIXTURE plot for K = ", k_val)
 }
-
-# Optional: diagnostic sample order check
-order_check_plot <- ggplot(q_long, aes(x = sample, y = Proportion, fill=Cluster)) +
-  geom_col() +
-  theme(axis.text.x = element_text(angle = 90))
-
-ggsave("/gpfs/data/bergstrom/paula/fox_repo/plotting/sample_order_check.png", plot = order_check_plot, width = 12, height = 4)
