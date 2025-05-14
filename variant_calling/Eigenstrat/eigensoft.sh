@@ -16,4 +16,9 @@ smartpca -p /gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/par.s
 
 /gpfs/data/bergstrom/sw/bin/fix-smartpca-evec-table.sh Vvulpes.pca.evec > Vvulpestidy.evec
 
+#########repeat for no-outliers
+smartpca -p /gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/par_removeoutliers.smartpca
+
+/gpfs/data/bergstrom/sw/bin/fix-smartpca-evec-table.sh Vvulpes_rmoutliers.pca.evec > Vvulpes_rmoutliers_tidy.evec
+
 

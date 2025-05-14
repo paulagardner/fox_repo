@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Input and output PLINK dataset prefixes (no extensions)
-INPUT_PREFIX="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/vcf_filtering/autosomes/variant_sites/Eigenstrat/Vvulpes_plink_autosomal"
-OUTPUT_PREFIX="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness"
+INPUT_PREFIX="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_plink_autosomal"
+OUTPUT_PREFIX="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness_rm_outlier"
 
 # Threshold for missingness (e.g., remove samples with F_MISS > 0.91
 MISSINGNESS_THRESHOLD=0.9
@@ -38,6 +38,11 @@ while IFS=$'\t' read -r FID IID MISSING_CT OBS_CT F_MISS; do
     fi
 done < "${INPUT_PREFIX_missingness}.smiss"  # Make sure to specify the correct path to your smiss file
 
+
+# Manually add a specific sample to the remove list
+echo -e "YPI1082\tYPI1082" >> "$TMP_REMOVE_FILE"
+echo "Manually added YPI1082 to remove list"
+
 # Check if there are any samples to remove
 if [[ ! -s "$TMP_REMOVE_FILE" ]]; then
     echo "No samples exceed the missingness threshold. Nothing to remove."
@@ -45,6 +50,7 @@ else
     echo "Samples to be removed:"
     cat "$TMP_REMOVE_FILE"
 fi
+
 
 ################### Step 3: Run PLINK to remove samples
 echo "Running PLINK to remove specified samples from the dataset..."
@@ -70,7 +76,7 @@ echo "Temporary file cleaned up."
 
 echo "Submitting ADMIXTURE jobs for K values from 3 to 11..."
 
-for K in {3..11}; do
+for K in {3..10}; do
   echo "Submitting ADMIXTURE job for K=$K"
   sbatch --job-name=admix_K$K \
          --output=log${K}.out \

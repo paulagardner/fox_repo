@@ -126,5 +126,5 @@ else:
     raise RuntimeError("No valid coverage files found.")
 
 # Save output
-combined_df.to_csv('merged_coverage_duplication.csv', index=False)
-print("\nSaved to merged_coverage_duplication.csv")
+combined_df.to_csv('all_bam_path_info.csv', index=False)
+print("\nSaved to all_bam_path_info.csv")
