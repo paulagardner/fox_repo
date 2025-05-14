@@ -62,6 +62,10 @@ print(pca_plot)
 ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large.png", plot = pca_plot, width = 12, height = 10)
 
 
+
+
+
+######################################ADMIXTURE###########################################################
 library(tidyverse)
 library(RColorBrewer)
 
@@ -82,6 +86,7 @@ df_filtered
 # Read final sample list that matches Q file row order
 final_samples <- readLines(file.path(q_file_base, "lowcoverage_missingness_final_samples.txt"))
 final_samples <- final_samples[final_samples %in% df_filtered$sample]
+final_samples
 
 # Get list of all .Q files and extract K values
 q_files <- list.files(q_file_base, pattern = "lowcoverage_missingness\\.\\d+\\.Q$", full.names = TRUE)
@@ -91,39 +96,22 @@ k_values <- as.integer(str_extract(basename(q_files), "(?<=\\.)\\d+(?=\\.Q)"))
 max_k <- max(k_values)
 color_pal <- RColorBrewer::brewer.pal(min(12, max_k), "Paired")
 continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(unique(df_filtered$continent)), name = "Set2"),
-                             unique(df_filtered$continent))
+  unique(df_filtered$continent))
 
+
+admix_plot_list = list()
 # Loop through each K and create plot
 for (i in seq_along(q_files)) {
   q_file_path <- q_files[i]
   k <- k_values[i]
   
   # Read Q file
-  # Read Q file
   q_file <- read.table(q_file_path, header = FALSE)
-
-  # Get original sample names for Q file row order
-  q_sample_names <- readLines(file.path(q_file_base, "lowcoverage_missingness_final_samples.txt"))
-
-  # Combine default exclusions + manual ones
-  manual_exclusions <- c("YPI1082")  # Add more manually if needed
-  excluded_samples <- unique(c(
-    readLines(file.path(q_file_base, "lowcoverage_missingness_removed_samples.txt")),
-    manual_exclusions
-  ))
-
-  # Remove excluded samples from Q matrix and sample list
-  keep_indices <- !(q_sample_names %in% excluded_samples)
-  q_file <- q_file[keep_indices, ]
-  q_sample_names <- q_sample_names[keep_indices]
-  q_file$sample <- q_sample_names
-
-  # Filter metadata to match Q file
-  df_filtered_q <- df_filtered[df_filtered$sample %in% q_sample_names, ]
-
-  # Merge with metadata
-  q_merged <- left_join(df_filtered_q, q_file, by = "sample")
-  stopifnot(nrow(q_merged) == nrow(df_filtered_q))
+  q_file$sample <- final_samples
+  
+  # Merge with ordered metadata
+  q_merged <- left_join(df_filtered, q_file, by = "sample")
+  stopifnot(nrow(q_merged) == nrow(df_filtered))
   
   # Melt and prepare long-format data
   kdf2 <- q_merged %>%
@@ -138,6 +126,7 @@ for (i in seq_along(q_files)) {
       sample = factor(sample, levels = df_filtered$sample),
       popGroup = as.factor(popGroup)
     )
+  kdf2
   
   # Label data
   label_df <- df_filtered %>%
@@ -145,7 +134,7 @@ for (i in seq_along(q_files)) {
       sample = factor(sample, levels = df_filtered$sample),
       label = paste0(sample, " (", region, ")")
     )
-  
+  label_df
   # Colors for this K
   fill_colors <- setNames(color_pal[seq_len(k)], as.character(seq_len(k)))
   
@@ -184,9 +173,17 @@ for (i in seq_along(q_files)) {
     )
   
   # Save
-  output_file <- file.path(output_dir, paste0("admixplot", k, ".png"))
+  output_file <- file.path(output_dir, paste0("admixplot_YPI1082removed", k, ".png"))
   ggsave(output_file, plot = admix_final, width = 12, height = 10)
   message("Saved ADMIXTURE plot for K = ", k)
+  
+  admix_plot_list[[paste0("K", k)]] <- admix_final
+
 }
 
 
+library(patchwork)
+
+combined_plot <- wrap_plots(admix_plot_list, ncol = 1)  # vertical stack
+
+ggsave("admixplot_grid_K3-7_patchwork.png", plot = combined_plot, width = 12, height = 10 * length(admix_plot_list), limitsize=FALSE)

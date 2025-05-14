@@ -1,0 +1,7 @@
+sample,bam_path,mean_coverage,percent_duplicates
+RUS,/gpfs/data/bergstrom/paula/fox_repo/NA_genomes/eager_results/merged_bams/initial/RUS_S12-0237_udgnone_libmerged_rmdup.bam,13.8561,10.14
+genome,/gpfs/data/bergstrom/paula/fox_repo/Lyu_genomes/eager_results/deduplication/genome_ngs/genome_ngs_rmdup.bam,55.3969,22.89
+968,/gpfs/data/bergstrom/paula/fox_repo/Rocha_alt_taxa_genomes/eager_results/deduplication/968/968_rmdup.bam,9.779,8.03
+S21,/gpfs/data/bergstrom/paula/fox_repo/our_genomes/eager_results/deduplication/S21_2760/S21_2760_rmdup.bam,40.7587,16.77
+LGOLD000007,/gpfs/data/bergstrom/paula/fox_repo/Meadows_genomes/eager_results/deduplication/LGOLD000007/LGOLD000007_rmdup.bam,31.1893,16.05
+18049,/gpfs/data/bergstrom/paula/fox_repo/Hasselgren_genomes/lane_duplicates/eager_results/deduplication/18049/18049_rmdup.bam,26.7889,10.93
