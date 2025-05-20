@@ -99,8 +99,9 @@ samples_df
 # 2. Join with the full_df on "sample", keeping the order of samples_df
 # This will add all columns from full_df to samples_df, matching on "sample"
 
-qfileorder_df <- samples_df %>%
-  left_join(metadata, by = "sample")
+# Extract continent values in the order of the .Q file
+qfileorder_df <- metadata[match(final_samples$sample, metadata$sample), ]
+
 qfileorder_df
 
 
@@ -142,142 +143,6 @@ order_df_filtered
 
 
 
-# Get list of all .Q files and extract K values
-#q_files <- list.files(q_file_base, pattern = "^low_missingness_rm_outlier_snpmanualfilter\\.\\d+\\.Q$", full.names = TRUE)
-q_files <- list.files(q_file_base, pattern = "^CLUMPAK\\.\\d+\\.Q$", full.names = TRUE)
-k_values <- as.integer(str_extract(basename(q_files), "(?<=\\.)\\d+(?=\\.Q)"))
-
-# Color palette (adapt dynamically if needed)
-max_k <- max(k_values)
-color_pal <- RColorBrewer::brewer.pal(min(12, max_k), "Paired")
-continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(unique(order_df_filtered$continent)), name = "Set2"),
-  unique(order_df_filtered$continent))
-
-
-
-k <- 3
-
-###make this into a loop
-  
-  # Read Q file
-q_file <- read.table(q_files[3][1], header = FALSE )
-q_file
-#q_file$sample <- final_samples
-q_file <- cbind(final_samples, q_file)
-q_file 
-
-
-
-# Step 1: Rename sample column in q_file
-
-
-# Step 2: Join with metadata-enhanced order_df
-
-q_merged <- left_join(order_df_filtered, q_file, by = "sample")
-q_merged
-stopifnot(nrow(q_merged) == nrow(order_df_filtered))
-
-
-  # Melt and prepare long-format data
-kdf2 <- q_merged %>%
-  mutate(row_order = row_number()) %>%
-  pivot_longer(
-    cols = starts_with("V"),
-    names_to = "popGroup",
-    values_to = "prop"
-  ) %>%
-  mutate(
-    popGroup = as.integer(str_remove(popGroup, "V")),
-    sample = factor(sample, levels = order_df_filtered$sample),
-    popGroup = as.factor(popGroup)
-  )
-kdf2
-
-#we reference order_df and not q_merged to keep continent 
-################note-may not be necessay anymore given that q_merged is handling this now (????)
-label_df <- order_df %>%
-  mutate(
-    sample = factor(sample, levels = order_df$sample),
-    label = paste0(sample, "(", region, ")")
-  )
-  label_df 
-  fill_colors <- setNames(color_pal[seq_len(k)], as.character(seq_len(k)))
-
-nrow(label_df)
-kdf2
-
-#------------------------------
-#" To ensure that your ADMIXTURE plot respects the order of samples as they appear in the kdf2 data frame
-# (e.g., LIS1022 first, then LIS1300, etc.), you must explicitly set the factor levels of the sample column 
-#in kdf2 to match the desired order."
-
-# Set the sample column as a factor with levels in the order they appear in the data frame
-#kdf2$sample <- factor(kdf2$sample, levels = unique(kdf2$sample))
-
-
-# Also make sure the same factor levels are applied to label_df
-#label_df$sample <- factor(label_df$sample, levels = levels(kdf2$sample))
-#----------------------------------
-
-
-kdf2 <- kdf2 %>%
-  mutate(sample = factor(sample, levels = order_df_filtered$sample)) %>%
-  arrange(sample, popGroup)
-label_df <- label_df %>%
-  mutate(sample = factor(sample, levels = order_df_filtered$sample)) %>%
-  arrange(sample)
-
-
-
-
-
-admix_final <- ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
-  geom_col(width = 1, color = "black") +
-  geom_text(
-    data = label_df,
-    aes(x = sample, y = -0.01, label = label, color = continent),
-    inherit.aes = FALSE,
-    angle = 45,
-    hjust = 1,
-    size = 2.5
-  ) +
-  scale_x_discrete(limits = order_df_filtered$sample) +  # << Force order
-  scale_fill_manual(values = fill_colors) +
-  scale_color_manual(values = continent_colors) +
-  coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
-  theme_minimal() +
-  labs(
-    title = paste("ADMIXTURE Plot K =", k),
-    x = "Samples",
-    y = "Ancestry Proportion",
-    fill = "Cluster"
-  ) +
-  theme(
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank(),
-    axis.line.x = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    plot.margin = margin(30, 20, 20, 20),
-    plot.title = element_text(size = 20, hjust = 0.5, margin = margin(b = 80)),
-    axis.title.x = element_text(size = 14, margin = margin(t = 80)),
-    axis.title.y = element_text(size = 14, margin = margin(r = 80)),
-    legend.position = "right"
-  )
-
-  # Save
-  output_file <- file.path(output_dir, paste0("admixplot_YPI1082removed", k, ".png"))
-  ggsave(output_file, plot = admix_final, width = 12, height = 10)
-  message("Saved ADMIXTURE plot for K = ", k
-
-
-
-
-
-
-
-
-
 
 
 
@@ -292,7 +157,7 @@ admix_final <- ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
 q_files <- list.files(q_file_base, pattern = "^CLUMPAK\\.\\d+\\.Q$", full.names = TRUE)
 k_values <- as.integer(str_extract(basename(q_files), "(?<=\\.)\\d+(?=\\.Q)"))
 
-# Color palette (adapt dynamically if needed)
+# palette (adapt dynamically if needed)
 max_k <- max(k_values)
 color_pal <- RColorBrewer::brewer.pal(min(12, max_k), "Paired")
 continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(unique(order_df_filtered$continent)), name = "Set2"),
@@ -300,10 +165,14 @@ continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(unique(order_df
 
 
 admix_plot_list = list()
+
+##### add handbrake to stop after certain number of K
+max_k = 9
 # Loop through each K and create plot
 for (i in seq_along(q_files)) {
   q_file_path <- q_files[i]
   k <- k_values[i]
+  if (k > max_k) next  # skip anything beyond K = 7
   
   # Read Q file
   q_file <- read.table(q_file_path, header = FALSE)
@@ -416,7 +285,7 @@ for (i in seq_along(q_files)) {
 
 
 
-
+#############################       make meta-plot  #######################################
 
 # Function to remove geom_text layers (sample labels) from a plot
 remove_geom_text <- function(plot) {
