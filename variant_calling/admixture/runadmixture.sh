@@ -2,48 +2,50 @@
 
 # Input and output PLINK dataset prefixes (no extensions)
 INPUT_PREFIX="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_plink_autosomal"
-OUTPUT_PREFIX="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness_rm_outlier"
+OUTPUT_DIR="/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture"
+OUTPUT_PREFIX="${OUTPUT_DIR}/low_missingness_rm_outlier"
 
-# Threshold for missingness (e.g., remove samples with F_MISS > 0.91
+# Threshold for missingness (e.g., remove samples with F_MISS > 0.9)
 MISSINGNESS_THRESHOLD=0.9
+
 ################### Step 1: Generate Missingness Report
 echo "Running PLINK to calculate missingness..."
 
 module load plink/2.00
-# Generate the missingness report (smiss file)
-plink2 --bfile "$INPUT_PREFIX" --missing --out "$INPUT_PREFIX_missingness"
 
-# Check if the smiss file was generated
-if [[ ! -f "${INPUT_PREFIX_missingness}.smiss" ]]; then
-  echo "Missingness file not found! Please check PLINK command and dataset."
+# Ensure output directory exists
+mkdir -p "$OUTPUT_DIR"
+
+# Generate the missingness report
+plink2 --bfile "$INPUT_PREFIX" --missing --out "${OUTPUT_PREFIX}"
+
+# Check if the .smiss file was generated
+SMISS_FILE="${OUTPUT_PREFIX}.smiss"
+if [[ ! -f "$SMISS_FILE" ]]; then
+  echo "ERROR: Missingness file not found at $SMISS_FILE"
   exit 1
 fi
 
+echo "Missingness file generated at: $SMISS_FILE"
+
 ################### Step 2: Extract samples to remove based on missingness threshold
-# Create a temporary file to store the list of samples to remove
 TMP_REMOVE_FILE=$(mktemp)
 echo "Creating temporary remove file: $TMP_REMOVE_FILE"
 
-# Read the smiss file (assuming it is tab-delimited and no header)
 while IFS=$'\t' read -r FID IID MISSING_CT OBS_CT F_MISS; do
-    # Skip header line
     if [[ "$FID" == "#FID" || "$FID" == "FID" ]]; then
         continue
     fi
-    # If missingness exceeds the threshold, add to the remove list
-    # Using bc for floating-point comparison
     if (( $(echo "$F_MISS > $MISSINGNESS_THRESHOLD" | bc -l) )); then
-        echo -e "$FID\t$IID" >> "$TMP_REMOVE_FILE"  # Correcting format to include FID
+        echo -e "$FID\t$IID" >> "$TMP_REMOVE_FILE"
         echo "Added $IID ($FID) to remove list (F_MISS=$F_MISS)"
     fi
-done < "${INPUT_PREFIX_missingness}.smiss"  # Make sure to specify the correct path to your smiss file
+done < "$SMISS_FILE"
 
-
-# Manually add a specific sample to the remove list
-echo -e "YPI1082\tYPI1082" >> "$TMP_REMOVE_FILE"
+# Manually add a specific sample
+echo -e "0\tYPI1082" >> "$TMP_REMOVE_FILE"
 echo "Manually added YPI1082 to remove list"
 
-# Check if there are any samples to remove
 if [[ ! -s "$TMP_REMOVE_FILE" ]]; then
     echo "No samples exceed the missingness threshold. Nothing to remove."
 else
@@ -51,39 +53,56 @@ else
     cat "$TMP_REMOVE_FILE"
 fi
 
+echo "Contents of remove file:"
+cat "$TMP_REMOVE_FILE"
 
-################### Step 3: Run PLINK to remove samples
-echo "Running PLINK to remove specified samples from the dataset..."
+################### Step 3: Remove samples
+echo "Running PLINK to remove specified samples..."
 
-# Run PLINK to remove samples and write list of retained individuals
 plink2 --bfile "$INPUT_PREFIX" \
        --remove "$TMP_REMOVE_FILE" \
        --make-bed \
        --out "$OUTPUT_PREFIX" \
        --allow-no-sex
 
-# Print confirmation and the number of remaining samples after removal
 echo "PLINK finished. Filtered dataset saved as: $OUTPUT_PREFIX"
 echo "Remaining samples after removal:"
 plink2 --bfile "$OUTPUT_PREFIX" --freq
 
-# Clean up temporary file
+################### Step 3.5: Output sample lists
+REMOVED_SAMPLES_FILE="${OUTPUT_PREFIX}_removed_samples.txt"
+KEPT_SAMPLES_FILE="${OUTPUT_PREFIX}_final_samples.txt"
+
+cut -f2 "$TMP_REMOVE_FILE" | sort > "$REMOVED_SAMPLES_FILE"
+echo "Removed samples list written to: $REMOVED_SAMPLES_FILE"
+
+cut -f2 "${OUTPUT_PREFIX}.fam" | sort > "$KEPT_SAMPLES_FILE"
+echo "Final retained samples list written to: $KEPT_SAMPLES_FILE"
+
+# Clean up
 echo "Cleaning up temporary remove file..."
 rm "$TMP_REMOVE_FILE"
 echo "Temporary file cleaned up."
 
-################### Step 4: Run ADMIXTURE with SLURM array via sbatch --wrap
 
-echo "Submitting ADMIXTURE jobs for K values from 3 to 11..."
 
-for K in {3..10}; do
+##############filter genotypes that are completely missing due to having only 
+##been present, presumably, in the YPI1082 dataset
+
+plink2 --bfile "$OUTPUT_PREFIX" --geno 0.999 --make-bed --out "${OUTPUT_PREFIX}_snpmanualfilter"
+
+################### Step 4: Run ADMIXTURE
+echo "Submitting ADMIXTURE jobs for K values from 3 to 10..."
+echo "Using input: ${OUTPUT_PREFIX}.bed"
+
+for K in {3..11}; do
   echo "Submitting ADMIXTURE job for K=$K"
   sbatch --job-name=admix_K$K \
-         --output=log${K}.out \
-         --time=1-12:00:00 \
+         --output="${OUTPUT_DIR}/log${K}.out" \
+         --time=2-1:00:00 \
          --cpus-per-task=4 \
-         --mem=16G \
-         --wrap="admixture --cv ${OUTPUT_PREFIX}.bed $K"
+         --mem=45G \
+         --wrap="admixture --cv ${OUTPUT_PREFIX}_snpmanualfilter.bed $K"
 done
 
 echo "All ADMIXTURE jobs submitted."
