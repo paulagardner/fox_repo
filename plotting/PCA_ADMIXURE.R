@@ -10,7 +10,15 @@ library(tidyverse)
 library(RColorBrewer)
 library(patchwork)
 
+#to run this via the cluster: conda activate redfox
+#R
+# run this line by line. eg, 
+
+
 # ---------------------- IMPORT & PREP ----------------------
+###running with version: 
+
+
 
 # Load PCA eigenvector file
 #pca <- read_tsv("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec")
@@ -32,26 +40,38 @@ metadata$continent <- factor(metadata$continent, levels = continent_order)
 # Join metadata to PCA data
 pca_meta <- left_join(pca, metadata, by = "sample")
 
-# Remove specific samples from PCA plot (based on ADMIXTURE filtering script)
+# Remove specific samples from PCA plot (based on ADMIXTURE filtering script). 
 excluded_samples <- readLines("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness_rm_outlier_removed_samples.txt")
 #excluded_samples <- c(excluded_samples, "YPI1082")
-excluded_samples
+#excluded_samples
 
 pca_meta_filtered <- pca_meta %>%
   filter(!sample %in% excluded_samples)
 pca_meta_filtered
 # Define color palette for continents
-continents <- unique(metadata$continent)
-continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continents), name = "Set2"), continents)
+#continents <- unique(metadata$continent)
+#continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continents), name = "Set2"), continents)
+continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continent_order), name = "Set2"), continent_order)
+
+
+
+# Read eigenvalues and calculate variance explained
+eigenvals <- scan("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers.pca.eval")
+variance_explained <- 100 * eigenvals / sum(eigenvals)
+
+# Format PC axis labels with variance
+x_lab <- paste0("PC1 (", round(variance_explained[1], 1), "% variance)")
+y_lab <- paste0("PC2 (", round(variance_explained[2], 1), "% variance)")
 
 
 # ---------------------- PCA PLOT ----------------------
 
+# PCA plot
 pca_plot <- ggplot(pca_meta_filtered, aes(x = PC1, y = PC2, color = continent)) +
   geom_point(size = 3) +
-  geom_text_repel(aes(label = paste0(sample, " (", region, ")")), size = 3, box.padding = 0.5, max.overlaps = 35) +
+  geom_text_repel(aes(label = paste0(sample, " (", region, ")")), size = 3.5, box.padding = 0.5, max.overlaps = 35) +
   theme_minimal(base_size = 15) +
-  labs(title = "PCA Plot by Continent", x = "Principal Component 1", y = "Principal Component 2") +
+  labs(title = "PCA Plot by Continent", x = x_lab, y = y_lab) +
   theme(
     plot.title = element_text(size = 20, hjust = 0.5),
     axis.title = element_text(size = 15),
@@ -61,9 +81,99 @@ pca_plot <- ggplot(pca_meta_filtered, aes(x = PC1, y = PC2, color = continent)) 
   ) +
   scale_color_manual(values = continent_colors)
 
-# Show and save PCA plot
-print(pca_plot)
+# Show and save
+#print(pca_plot)
 ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large.png", plot = pca_plot, width = 12, height = 10)
+#########################
+#poster version
+pca_plot <- ggplot(pca_meta_filtered, aes(x = PC1, y = PC2, color = continent)) +
+#  plot
+  geom_point(size = 3) +
+  geom_text_repel(aes(label = region), size = 5, box.padding = 0.5, max.overlaps = 20) +
+  theme_minimal(base_size = 15) +
+  labs(title = "PCA Plot by Continent", x = x_lab, y = y_lab) +
+  theme(
+    plot.title = element_text(size = 20, hjust = 0.5),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 14)
+  ) +
+  scale_color_manual(values = continent_colors)
+
+ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/poster_PCA.png", plot = pca_plot, width = 12, height = 10)
+
+
+##########################################################
+##########################################################
+# code to generate plot without removing YPI1082
+# ---------------------- IMPORT & PREP ----------------------
+
+# Load PCA eigenvector file
+pca2 <- read_tsv("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec")
+
+# Rename columns to PC1, PC2, etc.
+colnames(pca2)[2:ncol(pca2)] <- paste0("PC", 1:(ncol(pca2) - 1))
+
+# Import metadata from Google Sheets
+sheet_url <- "https://docs.google.com/spreadsheets/d/1KBqsCfPiuyno90iRJ-O0wV0HIijFncstvcIpGnpGY0k/edit?gid=1838883534#gid=1838883534"
+gs4_auth(path = "/gpfs/bio/xrq24scu/fox_repo/plotting/googlesheetskey.json")
+metadata <- read_sheet(sheet_url) %>%
+  mutate(sample = as.character(sample))
+
+# Join metadata to pca2 data
+pca2_meta <- left_join(pca2, metadata, by = "sample")
+
+# Remove specific samples from  plot (based on ADMIXTURE filtering script)
+#excluded_samples <- readLines("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness_rm_outlier_removed_samples.txt")
+#excluded_samples <- c(excluded_samples, "YPI1082")
+#excluded_samples
+
+#pca2_meta_filtered <- pca2_meta %>%
+#  filter(!sample %in% excluded_samples)
+#pca2_meta_filtered
+# should be able to use last plot's color palette
+#continents <- unique(metadata$continent)
+#continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continents), name = "Set2"), continents)
+#continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continent_order), name = "Set2"), continent_order)
+
+
+
+# Read eigenvalues and calculate variance explained
+eigenvals2 <- scan("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes.pca.eval")
+variance_explained2 <- 100 * eigenvals / sum(eigenvals)
+
+# Format PC axis labels with variance
+x_lab <- paste0("PC1 (", round(variance_explained2[1], 1), "% variance)")
+y_lab <- paste0("PC2 (", round(variance_explained2[2], 1), "% variance)")
+
+
+# ---------------------- PCA PLOT ----------------------
+
+# PCA plot
+pca2_plot <- ggplot(pca2_meta, aes(x = PC1, y = PC2, color = continent)) +
+  geom_point(size = 3) +
+  geom_text_repel(aes(label = paste0(sample, " (", region, ")")), size = 4, box.padding = 0.5, max.overlaps = 35) +
+  theme_minimal(base_size = 15) +
+  labs(title = "PCA Plot by Continent", x = x_lab, y = y_lab) +
+  theme(
+    plot.title = element_text(size = 20, hjust = 0.5),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 14)
+  ) +
+  scale_color_manual(values = continent_colors)
+
+# Show and save
+#print(pca_plot)
+ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large_withYPI1082.png", plot = pca2_plot, width = 12, height = 10)
+
+
+
+
+
+
 
 
 
@@ -160,8 +270,8 @@ k_values <- as.integer(str_extract(basename(q_files), "(?<=\\.)\\d+(?=\\.Q)"))
 # palette (adapt dynamically if needed)
 max_k <- max(k_values)
 color_pal <- RColorBrewer::brewer.pal(min(12, max_k), "Paired")
-continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(unique(order_df_filtered$continent)), name = "Set2"),
-  unique(order_df_filtered$continent))
+#continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(unique(order_df_filtered$continent)), name = "Set2"),
+#  unique(order_df_filtered$continent))
 
 
 admix_plot_list = list()
@@ -232,7 +342,7 @@ for (i in seq_along(q_files)) {
   # Plot
   admix_final <- ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
     geom_col(width = 1, color = "black") +
-    geom_col(  # simple black bars between continents
+    geom_col(  # simple bars between continents
       data = dividers_df,
       aes(x = sample, y = prop),
       fill = "white",
@@ -245,7 +355,7 @@ for (i in seq_along(q_files)) {
       inherit.aes = FALSE,
       angle = 45,
       hjust = 1,
-      size = 2.5
+      size = 3.5
     ) +
     scale_fill_manual(values = fill_colors) +
     scale_color_manual(values = continent_colors) +
@@ -319,12 +429,16 @@ stripped_plots <- lapply(admix_plot_list[1:(n_plots - 1)], function(p) {
 
 # Keep last plot as is (with labels and legend)
 last_plot <- admix_plot_list[[n_plots]] +
-  theme(plot.title = element_blank())
+  theme(
+    plot.title = element_blank(),
+    plot.margin = margin(5, 20, 5, 20)  # Match margins to stripped plots
+  )
+
 
 # Combine all plots vertically
 combined_plot <- wrap_plots(c(stripped_plots, list(last_plot)), ncol = 1) +
   plot_annotation(
-    title = "ADMIXTURE Plots for K = 3 to 11",
+    title = "ADMIXTURE Plots",
     theme = theme(plot.title = element_text(size = 18, hjust = 0.5, margin = margin(b = 20)))
   )
 
@@ -332,8 +446,10 @@ combined_plot <- wrap_plots(c(stripped_plots, list(last_plot)), ncol = 1) +
 ggsave(
   filename = file.path(output_dir, "admixplots_all_clean.png"),
   plot = combined_plot,
-  width = 12,
-  height = 18,
+  width = 16,
+  height = 9,
   limitsize = TRUE
 )
 }
+
+
