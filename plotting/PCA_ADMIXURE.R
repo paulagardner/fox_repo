@@ -388,7 +388,7 @@ ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/heterozygosity_plot.png", plot = he
 # Generate population IDs from region, using the numbers we generated for CLUMPAK
 write.table(
   order_df_filtered %>% select(sample, population),
-  file = file.path(MSMC_dir, "pop_groups.txt"),
+  file = file.path(MSMC_continental_dir, "pop_groups.txt"),
   col.names = FALSE, row.names = FALSE, quote = FALSE
 )
 #I THINK YOU MAY NEED TO RE-RUN THIS GROUPING NORTH AFRICA W/MIDDLE EAST
@@ -399,14 +399,14 @@ write.table(
 #######update this so that you know which pops are which, and color-code them accordingly.
 #smartest thing would be to name the created MSMC files according to 
 
-MSMC_dir <- "/gpfs/data/bergstrom/paula/fox_repo/MSMC/"
+MSMC_continental_dir <- "/gpfs/data/bergstrom/paula/fox_repo/MSMC/continental_groupings"
 mu  <- 4.5e-9   # mutation rate from gray wolves, as used in the montane foxes 2024 paper
 gen <- 2         # generation time in years
 
 library(ggplot2)
 
 # Read all msmc.final.txt files into one data frame
-msmc_files <- list.files(MSMC_dir, pattern = "^pop[0-9]+\\.msmc\\.final\\.txt$", full.names = TRUE)
+msmc_files <- list.files(MSMC_continental_dir, pattern = "^pop[0-9]+\\.msmc\\.final\\.txt$", full.names = TRUE)
 
 
 msmc <- do.call(rbind, lapply(msmc_files, function(f) {
@@ -441,7 +441,93 @@ MSMC_PLOT <- ggplot(msmc_annotated, aes(
     y = "Effective population size (Ne)"
   )
 
-ggsave(file.path(MSMC_dir, "msmc_plot.png"), MSMC_PLOT, width = 10, height = 6, dpi = 300)
+ggsave(file.path(MSMC_continental_dir, "msmc_plot.png"), MSMC_PLOT, width = 10, height = 6, dpi = 300)
+
+
+##############DO AGAIN WITH ALL POPULATIONS INDIVIDUALLY
+
+MSMC_allsamples_dir <- "/gpfs/data/bergstrom/paula/fox_repo/MSMC/per-sample_msmc"
+MSMC_all_samples_files <- list.files(MSMC_allsamples_dir, pattern = "*\\.msmc\\.final\\.txt$", full.names = TRUE)
+
+msmc_allsamples <- do.call(rbind, lapply(MSMC_all_samples_files, function(f) {
+  df <- read.table(f, header = TRUE)
+  # get just the number after "pop"
+  #df$population_ID <- as.integer(sub(".*pop([0-9]+)\\.msmc\\.final\\.txt$", "\\1", basename(f)))
+  df$sample <- sub("^(.*)\\.msmc\\.final\\.txt$", "\\1", basename(f))
+  df
+}))
+msmc_allsamples
+# make a lookup table: one continent per population_ID
+pop_lookup <- unique(order_df_filtered[, c("sample", "continent", "region")])
+pop_lookup
+
+# merge onto msmc
+msmc_allsamples_annotated <- merge(msmc_allsamples, pop_lookup, by = "sample", all.x = TRUE)
+msmc_allsamples_annotated
+
+# Plot
+library(dplyr)
+library(ggrepel)
+
+# Get one point per sample: the leftmost (minimum x) row
+labels_df <- msmc_allsamples_annotated %>%
+  group_by(sample, continent, region) %>%
+  slice_min((left_time_boundary / mu) * gen, n = 1) %>%
+  ungroup()
+
+MSMC_PLOT <- ggplot(
+  msmc_allsamples_annotated,
+  aes(
+    x = (left_time_boundary / mu) * gen,
+    y = (1 / lambda_00) / (2 * mu),
+    group = sample,
+    color = continent   # color by continent
+  )
+) +
+  geom_step() +
+  geom_text_repel(
+    data = labels_df,
+    aes(
+      x = (left_time_boundary / mu) * gen,
+      y = (1 / lambda_00) / (2 * mu),
+      label = region,     # <- label by region now
+      color = continent   # match line color to continent
+    ),
+    size = 3,
+    #nudge_x = -0.15 * max(msmc_allsamples_annotated$left_time_boundary / mu * gen),
+    direction = "y",
+    hjust = 1,
+    segment.color = NA,
+    inherit.aes = FALSE
+  ) +
+  scale_x_log10(
+    limits = c(10000, 1000000),
+    breaks = scales::trans_breaks("log10", function(x) 10^x),
+    labels = scales::trans_format("log10", scales::math_format(10^.x))
+  ) +
+  scale_y_log10(
+    limits = c(10000, 500000),
+    breaks = scales::trans_breaks("log10", function(x) 10^x),
+    labels = scales::trans_format("log10", scales::math_format(10^.x))
+  ) +
+  facet_wrap(~ continent, scales = "fixed") +
+  theme_classic() +
+  theme(
+    legend.position = "none"
+  ) +
+  annotation_logticks() +
+  labs(
+    x = "Time (years)",
+    y = "Effective population size (Ne)"
+  )
+
+ggsave(
+  file.path(MSMC_allsamples_dir, "msmc_allsamples_faceted_region_labels.png"),
+  MSMC_PLOT,
+  width = 20,
+  height = 20,
+  dpi = 300
+)
 
 
 
