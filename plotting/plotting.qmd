@@ -2,25 +2,6 @@
 title: "plots"
 ----
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE) #not sure what these do, look it up
-print("hello world")
-variable_test <- 42
-```
-
-```{r}
-print(variable_test) #this shows that this stuff makes variables global 
-```
-
-```{r}
-#| label: testplot
-#| fig-width: 4
-#| fig.asp: 1
-#| out.width: "70%"
-#| out.height: "auto"
-plot(cars)
-```
-
 
 ######################## ACTUALLY RUNNING THESE THINGS ########################
 #would it make more sense to run the code in separate .R scripts and pull the information from theere? 
@@ -41,15 +22,14 @@ library(purrr)
 # Import metadata from Google Sheets
 sheet_url <- "https://docs.google.com/spreadsheets/d/1KBqsCfPiuyno90iRJ-O0wV0HIijFncstvcIpGnpGY0k/edit?gid=1838883534#gid=1838883534"
 gs4_auth(path = "/gpfs/bio/xrq24scu/fox_repo/plotting/googlesheetskey.json") #you have to generate this json key from your google account
-metadata <- read_sheet(sheet_url) %>%
-  mutate(sample = as.character(Sample))
+metadata <- read_sheet(sheet_url, sheet = "cluster_genomes_and_paths") %>%
+  mutate(Sample = as.character(Sample)) %>%   # force only Sample to character
+  rename(sample = Sample)
 
 
 # Specify continent order manually (adjust as needed)
 continent_order <- c("Europe", "WestAsia/NorthAfrica", "Asia", "Americas")
 
-
-canadian_provinces
 
 metadata <- metadata %>%
   mutate(continent = case_when(
@@ -334,4 +314,178 @@ ggsave(file.path(output_dir, "admixplots_all_clean.png"),
        bg = 'transparent',
        width = 16,
        height = 9)
+```
+
+
+```{r}
+# ==================
+#   HETEROZYGOSITY 
+# ==================
+
+heterozygosity_url <- "https://docs.google.com/spreadsheets/d/1KBqsCfPiuyno90iRJ-O0wV0HIijFncstvcIpGnpGY0k/edit?gid=1838883534#gid=1838883534"
+gs4_auth(path = "/gpfs/bio/xrq24scu/fox_repo/plotting/googlesheetskey.json")
+heterozygosity_data <- read_sheet(heterozygosity_url, sheet = "HeterozygosityData") %>%
+  mutate(Sample = as.character((Sample))) %>%
+  rename(sample = Sample)
+
+#get heterozygosity data merged w/ order_df (order.tsv with poor quality
+#samples removed)
+coverage_heterozygosity <- left_join(metadata, heterozygosity_data, by = "sample")
+
+#Discard all data w/ a mean coverage below 15x, as indicated by which samples had 
+#elevated heterozygosity (in your google plot)
+filtered_cov_het <- coverage_heterozygosity[coverage_heterozygosity$mean_coverage > 15,]
+# Remove samples with NA coverage
+filtered_cov_het <- filtered_cov_het[!is.na(filtered_cov_het$mean_coverage),]
+filtered_cov_het <- filtered_cov_het[filtered_cov_het$species == "Vulpes vulpes",]
+filtered_cov_het <- filtered_cov_het[!is.na(filtered_cov_het$species),]
+
+#now get this into a plotting order you like
+# Join order with heterozygosity data
+merged.df <- left_join(order_df, filtered_cov_het, by = "sample")
+
+# Clean up duplicate columns: keep order_df's region/continent, drop the ".y"
+merged.df <- merged.df %>%
+  mutate(
+    region = coalesce(region.x, region.y),
+    continent = coalesce(continent.x, continent.y)
+  ) %>%
+  select(-region.x, -region.y, -continent.x, -continent.y)
+
+# Drop samples with missing heterozygosity values
+merged.df <- merged.df[!is.na(merged.df$Heterozygosity), ]
+
+# Create combined sample label
+merged.df$sample_region <- paste0(merged.df$sample, " (", merged.df$region, ")")
+
+# Enforce order from order_df
+merged.df$sample_region <- factor(
+  merged.df$sample_region,
+  levels = paste0(order_df$sample, " (", order_df$region, ")")
+)
+
+# Use continent colors from earlier
+continent_colors <- setNames(
+  RColorBrewer::brewer.pal(length(unique(order_df$continent)), "Set2"),
+  unique(order_df$continent)
+)
+
+# Plot
+heterozygosity_plot <- ggplot(merged.df, 
+                              aes(x = sample_region, y = Heterozygosity, color = continent)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Heterozygosity - 2 * Jackknife_SE,
+                    ymax = Heterozygosity + 2 * Jackknife_SE),
+                width = 0.2, color = "black") +
+  scale_color_manual(values = continent_colors) +
+  theme_minimal() +
+  labs(title = "Heterozygosity by Sample",
+       x = "Sample (Region)",
+       y = "Heterozygosity",
+       color = "Continent") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/heterozygosity_plot.png",
+       plot = heterozygosity_plot, width = 12, height = 6)
+
+
+```
+
+
+
+```{r}
+# ==========================================
+#                   MSMC
+# ==========================================
+##############DO AGAIN WITH ALL POPULATIONS INDIVIDUALLY
+mu  <- 4.5e-9   # mutation rate from gray wolves, as used in the montane foxes 2024 paper
+gen <- 2         # generation time in years
+
+MSMC_allsamples_dir <- "/gpfs/data/bergstrom/paula/fox_repo/MSMC/per-sample_msmc"
+MSMC_all_samples_files <- list.files(MSMC_allsamples_dir, pattern = "*\\.msmc\\.final\\.txt$", full.names = TRUE)
+
+msmc_allsamples <- do.call(rbind, lapply(MSMC_all_samples_files, function(f) {
+  df <- read.table(f, header = TRUE)
+  # get just the number after "pop"
+  #df$population_ID <- as.integer(sub(".*pop([0-9]+)\\.msmc\\.final\\.txt$", "\\1", basename(f)))
+  df$sample <- sub("^(.*)\\.msmc\\.final\\.txt$", "\\1", basename(f))
+  df
+}))
+msmc_allsamples
+
+# make a lookup table: one continent per population_ID
+# Build the lookup only from filtered samples
+pop_lookup <- order_df %>%
+  semi_join(filtered_cov_het, by = "sample") %>%   # only samples that passed coverage filter
+  select(sample, continent, region) %>%
+  distinct()
+
+# Join MSMC data with lookup and drop outgroups / low-coverage samples
+msmc_allsamples_annotated <- msmc_allsamples %>%
+  left_join(pop_lookup, by = "sample") %>%
+  filter(!is.na(continent))    # keep only foxes that passed the heterozygosity filter
+
+
+
+# Get one point per sample: the leftmost (minimum x) row
+labels_df <- msmc_allsamples_annotated %>%
+  group_by(sample, continent, region) %>%
+  slice_min((left_time_boundary / mu) * gen, n = 1) %>%
+  ungroup()
+
+MSMC_PLOT <- ggplot(
+  msmc_allsamples_annotated,
+  aes(
+    x = (left_time_boundary / mu) * gen,
+    y = (1 / lambda_00) / (2 * mu),
+    group = sample,
+    color = continent
+  )
+) +
+  geom_step() +
+  geom_text_repel(
+    data = labels_df,
+    aes(
+      x = (left_time_boundary / mu) * gen,
+      y = (1 / lambda_00) / (2 * mu),
+      label = region,
+      color = continent
+    ),
+    size = 3,
+    direction = "y",
+    hjust = 1,
+    segment.color = NA,
+    inherit.aes = FALSE
+  ) +
+  scale_color_manual(values = continent_colors) +   # <--- reuse the same colors
+  scale_x_log10(
+    limits = c(10000, 1000000),
+    breaks = scales::trans_breaks("log10", function(x) 10^x),
+    labels = scales::trans_format("log10", scales::math_format(10^.x))
+  ) +
+  scale_y_log10(
+    limits = c(10000, 500000),
+    breaks = scales::trans_breaks("log10", function(x) 10^x),
+    labels = scales::trans_format("log10", scales::math_format(10^.x))
+  ) +
+  facet_wrap(~ continent, scales = "fixed") +
+  theme_classic() +
+  theme(
+    legend.position = "none"
+  ) +
+  annotation_logticks() +
+  labs(
+    x = "Time (years)",
+    y = "Effective population size (Ne)"
+  )
+
+
+ggsave(
+  file.path(MSMC_allsamples_dir, "msmc_allsamples_faceted_region_labels.png"),
+  MSMC_PLOT,
+  width = 20,
+  height = 20,
+  dpi = 300
+)
+
 ```
