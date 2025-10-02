@@ -1,0 +1,533 @@
+----
+title: "plots"
+----
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE) #not sure what these do, look it up
+print("hello world")
+variable_test <- 42
+```
+
+```{r}
+print(variable_test) #this shows that this stuff makes variables global 
+```
+
+```{r}
+#| label: testplot
+#| fig-width: 4
+#| fig.asp: 1
+#| out.width: "70%"
+#| out.height: "auto"
+plot(cars)
+```
+
+
+######################## ACTUALLY RUNNING THESE THINGS ########################
+#would it make more sense to run the code in separate .R scripts and pull the information from theere? 
+#for instance https://www.reddit.com/r/bioinformatics/comments/13hzttk/seeking_advice_on_managing_r_markdown_code_and/
+#specifically, this comment? https://www.reddit.com/r/bioinformatics/comments/13hzttk/comment/jk9haps/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
+```{r}
+#load packages and get base metadata to work with
+library(tidyverse) #version in redfox conda: 2.0.0
+library(googlesheets4) # 1.1.1
+library(ggrepel) # 0.9.6
+library(RColorBrewer) #1.1.3
+library(grid) #4.4.3
+library(gtable) #0.3.6
+library(dplyr) #2.1.4
+library(patchwork) #1.3.0
+library(purrr)
+
+# Import metadata from Google Sheets
+sheet_url <- "https://docs.google.com/spreadsheets/d/1KBqsCfPiuyno90iRJ-O0wV0HIijFncstvcIpGnpGY0k/edit?gid=1838883534#gid=1838883534"
+gs4_auth(path = "/gpfs/bio/xrq24scu/fox_repo/plotting/googlesheetskey.json") #you have to generate this json key from your google account
+metadata <- read_sheet(sheet_url) %>%
+  mutate(sample = as.character(Sample))
+
+
+# Specify continent order manually (adjust as needed)
+continent_order <- c("Europe", "WestAsia/NorthAfrica", "Asia", "Americas")
+
+
+canadian_provinces
+
+metadata <- metadata %>%
+  mutate(continent = case_when(
+    region %in% c("Russia", "West Russia", "East Russia", "North Russia", "China", "Xinjiang", "Japan", "India") ~ "Asia",
+    region %in% c("Iraq", "Israel", "Saudi Arabia", "Mauritania", "Tunisia", "Morocco", "Iran", "Western Sahara") ~ "WestAsia/NorthAfrica",
+    region %in% c("Canada", "Saskatchewan", "Nunavut", "Newfoundland", "Quebec", "United States", state.name) ~ "Americas",
+    TRUE ~ "Europe"   # most of our unique countries will be in europe, so this makes sense
+  ))
+
+metadata$continent <- factor(metadata$continent, levels = continent_order) #convert from string to factor type, makes handling it
+#in plots, for colors etc much easier 
+
+
+
+#####
+#Assign the color palette for the plots
+#####
+continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continent_order), name = "Set2"), continent_order)
+
+
+```
+
+
+```{r}
+
+# Function to generate PCA plot
+plot_pca <- function(
+    evec_path,          # path to .evec file
+    eval_path,          # path to .pca.eval file
+    metadata,           # metadata dataframe
+    excluded_samples = NULL, # optional vector of samples to exclude
+    point_label = c("sample", "region"), # whether to label by sample+region or just region
+    output_file,        # path to save plot
+    plot_title = "PCA Plot",  # plot title
+    continent_colors,   # named vector of continent colors
+    width = 12,
+    height = 10,
+    poster = FALSE      # if TRUE, use poster version formatting
+) {
+  
+  point_label <- match.arg(point_label)
+  
+  # Load PCA eigenvectors
+  pca <- read_tsv(evec_path)
+  colnames(pca)[2:ncol(pca)] <- paste0("PC", 1:(ncol(pca) - 1))
+  
+  # Join metadata
+  pca_meta <- left_join(pca, metadata, by = "sample")
+  
+  # Filter excluded samples if provided
+  if (!is.null(excluded_samples)) {
+    pca_meta <- pca_meta %>% filter(!sample %in% excluded_samples)
+  }
+  
+  # Read eigenvalues and compute variance explained
+  eigenvals <- scan(eval_path)
+  variance_explained <- 100 * eigenvals / sum(eigenvals)
+  
+  x_lab <- paste0("PC1 (", round(variance_explained[1], 1), "% variance)")
+  y_lab <- paste0("PC2 (", round(variance_explained[2], 1), "% variance)")
+  
+  # Determine labels
+  if (poster) {
+    label_aes <- aes(label = region)
+    text_size <- 5
+    max_overlaps <- 20
+  } else {
+    label_aes <- if (point_label == "region") aes(label = region) else aes(label = paste0(sample, " (", region, ")"))
+    text_size <- 3.5
+    max_overlaps <- 35
+  }
+
+# Create plot
+p <- ggplot(pca_meta, aes(x = PC1, y = PC2, color = continent)) +
+  geom_point(size = 3) +
+  geom_text_repel(label_aes, size = text_size, box.padding = 0.5, max.overlaps = max_overlaps) +
+  theme_minimal(base_size = 15) +
+  labs(title = plot_title, x = x_lab, y = y_lab) +
+  theme(
+    plot.title = element_text(size = 20, hjust = 0.5),
+    axis.title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 14)
+  ) +
+  scale_color_manual(values = continent_colors) #+
+  #coord_fixed() # comment out the + and coord_fixed if you want a nice square aspect ratio,
+                # as this makes 1 unit in x = 1 unit in y. This overrides any ggsave options
+
+  
+  # Save plot
+  ggsave(output_file, plot = p, width = width, height = height, dpi = 300)
+  
+  return(p)
+}
+
+
+
+
+
+#### generate two different plots 
+excluded_samples <- readLines("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness_rm_outlier_removed_samples.txt")
+
+# Normal PCA
+pca_plot <- plot_pca(
+  evec_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers_tidy.evec", #this is named differently from the .pca.eval b/c I apply one of anders' custom scripts (in eigensoft.sh). make sure you #add this script to analyses
+  eval_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers.pca.eval",
+  metadata = metadata,
+  excluded_samples = excluded_samples,
+  point_label = "sample",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large.png",
+  plot_title = "PCA by Continent",
+  continent_colors = continent_colors
+)
+
+# Poster Version
+pca_plot <- plot_pca(
+  evec_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers_tidy.evec",
+  eval_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers.pca.eval",
+  metadata = metadata,
+  excluded_samples = excluded_samples,
+  point_label = "sample",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_poster.png",
+  plot_title = "PCA by Continent",
+  continent_colors = continent_colors,
+  poster = TRUE 
+)
+
+# PCA including YPI1082
+pca2_plot <- plot_pca(
+  evec_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec",
+  eval_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes.pca.eval",
+  metadata = metadata,
+  point_label = "sample",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large_withYPI1082.png",
+  plot_title = "PCA with YPI1082",
+  continent_colors = continent_colors
+)
+
+pca2_plot <- plot_pca(
+  evec_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec",
+  eval_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes.pca.eval",
+  metadata = metadata,
+  point_label = "sample",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_withYPI1082_poster.png",
+  plot_title = "PCA with YPI1082",
+  continent_colors = continent_colors,
+  poster = TRUE
+)
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+### ADMIXTOOLS 
+
+###################################### CLUMPAK/ADMIXTURE Plotting #####################################
+# This section generates CLUMPAK input files and produces ADMIXTURE barplots for different K values.
+# It expects:
+#   - Q files named CLUMPAK.<K>.Q in q_file_base
+#   - A .fam file with sample order matching the Q files
+#   - An order.tsv file with sample, region, and continent columns for plotting order (made manually to suit an 
+      # order you thought was sensible)
+#   - A metadata object with sample, region, and continent columns
+#   - A list of excluded samples (to be filtered out of plots)
+        ###NOTE HERE: If samples are removed because they are
+
+# ----------- Set file paths -----------
+q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture"
+output_dir <- "/gpfs/data/bergstrom/paula/fox_repo/plotting"
+
+# ----------- Read sample order from .fam file and make a tibble from it -----------
+#have to be very careful with the .fam file data as the columns are not labeled and are not
+#obvious to interpret
+# The .fam file's second column contains sample IDs, which matches the row order in Q files.
+# eg 0	AK_S12-1159	0	0	0	-9
+#0	ECAN_S14-0358	0	0	0	-9
+
+# Read .fam sample order
+### ADMIXTOOLS / ADMIXTURE plotting
+# ----------- Read .fam file sample order -----------
+final_samples <- read.table(file.path(q_file_base, 
+                                      "low_missingness_rm_outlier_snpmanualfilter.fam"),
+                            header = FALSE)[,2]
+final_samples_df <- data.frame(sample = final_samples, stringsAsFactors = FALSE)
+
+# Join metadata to preserve sample info
+qfileorder_df <- final_samples_df %>%
+  left_join(metadata %>% select(-Sample), by = "sample")
+
+# Population IDs for ADMIXTOOLS (optional)
+write.table(as.integer(factor(qfileorder_df$continent)),
+            file.path(q_file_base, "popID.txt"),
+            col.names = FALSE, row.names = FALSE)
+
+# ----------- Order table & exclusions -----------
+excluded <- readLines(file.path(q_file_base,
+                                "low_missingness_rm_outlier_removed_samples.txt"))
+order_df <- read_tsv(file.path(output_dir, "order.tsv"),
+                     col_names = c("sample","region","continent"),
+                     show_col_types = FALSE) %>%
+  filter(!sample %in% excluded)
+order_df
+
+# Keep only relevant columns from metadata
+# Keep only the columns we need from metadata
+metadata_sel <- metadata %>% select(sample, region, continent)
+metadata_sel
+
+# Join to order_df, keeping its order
+# Overwrite order_df values with metadata values where present
+order_df <- order_df %>%
+  left_join(metadata_sel, by = "sample") %>%
+  mutate(
+    # region: prefer metadata if present
+    region = ifelse(!is.na(region.y), region.y, region.x),
+    # continent: metadata already provides it
+    continent = continent
+  ) %>%
+  select(sample, region, continent)
+
+
+# Check
+print(n=50, order_df)
+
+# Combine sample + continent into a tibble and print first 20 rows
+
+
+# ----------- Colors -----------
+total_k <- 6
+color_pal <- brewer.pal(min(12, total_k), "Paired")
+continent_colors <- setNames(brewer.pal(n_distinct(order_df$continent), "Set2"),
+                             unique(order_df$continent))
+
+# range of K values you want to plot
+k_values <- 3:total_k  # or whatever your total_k is
+# Generate full paths to Q files based on K
+q_files <- file.path(q_file_base, paste0("CLUMPAK.", k_values, ".Q"))
+
+# Optional: check that all files exist
+q_files[!file.exists(q_files)]  # should return character(0) if all exist
+
+
+# ----------- Dividers + label positions -----------
+label_df <- order_df %>%
+  mutate(sample = factor(sample, levels = order_df$sample),
+         idx = as.numeric(sample))
+
+dividers_df <- label_df %>%
+  mutate(next_continent = lead(continent)) %>%
+  filter(continent != next_continent) %>%
+  transmute(sample = idx + 0.5, prop = 1)
+
+# ----------- Helper function to plot one K -----------
+plot_admix <- function(q_file, k) {
+  q_data <- read.table(q_file, header = FALSE) %>%
+    bind_cols(tibble(sample = final_samples))
+  
+  kdf2 <- order_df %>%
+    left_join(q_data, by = "sample") %>%
+    pivot_longer(starts_with("V"), names_to = "popGroup", values_to = "prop") %>%
+    mutate(
+      popGroup = factor(as.integer(str_remove(popGroup, "V"))),
+      sample = factor(sample, levels = order_df$sample)
+    )
+  
+  ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
+    geom_col(width = 1, color = "black") +
+    geom_col(data = dividers_df, aes(x = sample, y = prop), fill = "white",
+             width = 0.3, inherit.aes = FALSE) +
+    scale_fill_manual(values = setNames(color_pal[seq_len(k)], seq_len(k))) +
+    scale_color_manual(values = continent_colors) +
+    coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
+    theme_minimal() +
+    labs(title = paste("ADMIXTURE Plot K =", k), x = NULL, y = "Ancestry Proportion") +
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          panel.grid = element_blank(),
+          plot.margin = margin(20,20,20,20))
+}
+
+# ----------- Generate list of plots -----------
+# Assume you have q_files and k_values defined (e.g., q_files = list.files(...), k_values = c(...))
+admix_plot_list <- map2(q_files, k_values, \(f, k) if (k <= total_k) plot_admix(f, k)) %>%
+  compact()
+
+# ----------- Combine plots with only last showing labels and single legend at bottom -----------
+n <- length(admix_plot_list)
+if (n == 0) stop("No ADMIXTURE plots to combine: check Q files and total_k.")
+
+combined_plot <- map2(admix_plot_list, seq_len(n), \(p, i) {
+  if (i < n) {
+    # All but last plot: remove labels and legend
+    p + theme(
+      legend.position = "none",
+      axis.title = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      panel.grid = element_blank(),
+      plot.margin = margin(5, 20, 5, 20)
+    )
+  } else {
+    # Last plot: add region labels and leave space at bottom
+    p +
+      geom_text(data = label_df, aes(x = sample, y = -0.01, label = region,
+                                     color = continent),
+                angle = 45, hjust = 1, size = 6, inherit.aes = FALSE) +
+      theme(
+        legend.position = "bottom",
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        plot.margin = margin(20, 20, 80, 20)  # increased bottom margin for country names
+      )
+  }
+}) %>%
+  wrap_plots(ncol = 1, heights = rep(1, n)) +
+  plot_annotation(title = "ADMIXTURE Plots",
+                  theme = theme(plot.title = element_text(size = 18, hjust = 0.5)))
+
+# ----------- Save combined plot -----------
+ggsave(file.path(output_dir, "admixplots_all_clean.png"),
+       plot = combined_plot,
+       bg = 'transparent',
+       width = 16,
+       height = 9)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+###################################### CLUMPAK/ADMIXTURE Plotting #####################################
+
+# ----------- Set file paths -----------
+q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture"
+output_dir <- "/gpfs/data/bergstrom/paula/fox_repo/plotting"
+
+# ----------- Read sample order from .fam file -----------
+final_samples <- read.table(file.path(q_file_base, 
+                                      "low_missingness_rm_outlier_snpmanualfilter.fam"),
+                            header = FALSE)[,2]
+final_samples_df <- data.frame(sample = final_samples, stringsAsFactors = FALSE)
+
+# Join metadata to preserve sample info
+qfileorder_df <- final_samples_df %>%
+  left_join(metadata %>% select(-Sample), by = "sample")
+
+# Population IDs for ADMIXTOOLS (optional)
+write.table(as.integer(factor(qfileorder_df$continent)),
+            file.path(q_file_base, "popID.txt"),
+            col.names = FALSE, row.names = FALSE)
+
+# ----------- Order table & exclusions -----------
+excluded <- readLines(file.path(q_file_base,
+                                "low_missingness_rm_outlier_removed_samples.txt"))
+order_df <- read_tsv(file.path(output_dir, "order.tsv"),
+                     col_names = c("sample","region","continent"),
+                     show_col_types = FALSE) %>%
+  filter(!sample %in% excluded)
+
+# Keep only relevant columns from metadata
+metadata_sel <- metadata %>% select(sample, region, continent)
+
+# Overwrite order_df values with metadata values where present
+order_df <- order_df %>%
+  left_join(metadata_sel, by = "sample") %>%
+  mutate(
+    region = ifelse(!is.na(region.y), region.y, region.x),
+    continent = continent  # comes directly from metadata
+  ) %>%
+  select(sample, region, continent)
+
+# ----------- Colors -----------
+total_k <- 6
+color_pal <- brewer.pal(min(12, total_k), "Paired")
+continent_colors <- setNames(brewer.pal(n_distinct(order_df$continent), "Set2"),
+                             unique(order_df$continent))
+
+# ----------- Range of K values and Q files -----------
+k_values <- 3:total_k
+q_files <- file.path(q_file_base, paste0("CLUMPAK.", k_values, ".Q"))
+
+# ----------- Dividers + label positions -----------
+label_df <- order_df %>%
+  mutate(sample = factor(sample, levels = order_df$sample),
+         idx = as.numeric(sample))
+
+dividers_df <- label_df %>%
+  mutate(next_continent = lead(continent)) %>%
+  filter(continent != next_continent) %>%
+  transmute(sample = idx + 0.5, prop = 1)
+
+# ----------- Helper function to plot one K -----------
+plot_admix <- function(q_file, k) {
+  q_data <- read.table(q_file, header = FALSE) %>%
+    bind_cols(tibble(sample = final_samples))
+  
+  kdf2 <- order_df %>%
+    left_join(q_data, by = "sample") %>%
+    pivot_longer(starts_with("V"), names_to = "popGroup", values_to = "prop") %>%
+    mutate(
+      popGroup = factor(as.integer(str_remove(popGroup, "V"))),
+      sample = factor(sample, levels = order_df$sample)
+    )
+  
+  ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
+    geom_col(width = 1, color = "black") +
+    geom_col(data = dividers_df, aes(x = sample, y = prop), fill = "white",
+             width = 0.3, inherit.aes = FALSE) +
+    scale_fill_manual(values = setNames(color_pal[seq_len(k)], seq_len(k))) +
+    scale_color_manual(values = continent_colors) +
+    coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
+    theme_minimal() +
+    labs(title = paste("ADMIXTURE Plot K =", k), x = NULL, y = "Ancestry Proportion") +
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks = element_blank(),
+      panel.grid = element_blank(),
+      plot.margin = margin(5, 10, 5, 10),
+      legend.position = "none"  # remove legend entirely
+    )
+}
+
+# ----------- Generate list of plots -----------
+admix_plot_list <- map2(q_files, k_values, \(f, k) if (k <= total_k) plot_admix(f, k)) %>%
+  compact()
+
+# ----------- Combine plots (no legends) -----------
+n <- length(admix_plot_list)
+if (n == 0) stop("No ADMIXTURE plots to combine: check Q files and total_k.")
+
+combined_plot <- map2(admix_plot_list, seq_len(n), \(p, i) {
+  label_layer <- if (i == n) {
+    geom_text(data = label_df, aes(x = sample, y = -0.02, label = region, color=continent),
+              angle = 45, hjust = 1, size = 4, inherit.aes = FALSE)
+  } else NULL #only add text labels to the very last plot
+  
+  p +                     # the original ggplot object for this K
+  label_layer +          # optionally adds the region labels (or NULL for other plots)
+  theme(                 # override/add theme elements
+    legend.position = "none",             # removes the legend entirely
+    axis.text.x = element_blank(),        # removes x-axis text
+    axis.text.y = element_blank(),        # removes y-axis text
+    axis.title = element_blank(),         # removes axis titles
+    panel.grid = element_blank(),         # removes grid lines
+    plot.margin = margin(10, 20, ifelse(i == n, 80, 5), 20)  
+    # sets margins: top=10, right=20, bottom=80 for last plot (i==n) or 5 otherwise, left=20
+  )
+}) %>%
+  wrap_plots(ncol = 1, heights = rep(1, n)) +
+  plot_annotation(title = "ADMIXTURE Plots",
+                  theme = theme(plot.title = element_text(size = 18, hjust = 0.5)))
+
+
+ggsave(file.path(output_dir, "admixplots_all_clean.png"),
+       plot = combined_plot,
+       bg = 'transparent',
+       width = 16,
+       height = 9)
+```
