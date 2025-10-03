@@ -199,7 +199,8 @@ final_samples_df <- data.frame(sample = final_samples, stringsAsFactors = FALSE)
 
 # Join metadata to preserve sample info
 qfileorder_df <- final_samples_df %>%
-  left_join(metadata %>% select(-Sample), by = "sample")
+  left_join(metadata, by = "sample")
+
 
 # Population IDs for ADMIXTOOLS (optional)
 write.table(as.integer(factor(qfileorder_df$continent)),
@@ -401,7 +402,7 @@ ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/heterozygosity_plot.png",
 mu  <- 4.5e-9   # mutation rate from gray wolves, as used in the montane foxes 2024 paper
 gen <- 2         # generation time in years
 
-MSMC_allsamples_dir <- "/gpfs/data/bergstrom/paula/fox_repo/MSMC/per-sample_msmc"
+MSMC_allsamples_dir <- "/gpfs/data/bergstrom/paula/fox_repo/MSMC/autosomal_popsize_msmc"
 MSMC_all_samples_files <- list.files(MSMC_allsamples_dir, pattern = "*\\.msmc\\.final\\.txt$", full.names = TRUE)
 
 msmc_allsamples <- do.call(rbind, lapply(MSMC_all_samples_files, function(f) {
@@ -487,5 +488,92 @@ ggsave(
   height = 20,
   dpi = 300
 )
+
+```
+
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+
+# Plotting function
+plot_MSMC_facets <- function(msmc_data, continent_colors, mu, gen,
+                             highlight_samples = NULL,
+                             logx_limits = c(10000, 1000000),
+                             logy_limits = c(10000, 500000),
+                             line_size = 0.8) {
+  
+  # Optionally filter for highlighted samples
+  if (!is.null(highlight_samples)) {
+    msmc_data <- msmc_data %>%
+      filter(sample %in% highlight_samples)
+  }
+  
+  # Generate labels: leftmost point per sample
+  labels_df <- msmc_data %>%
+    group_by(sample, continent, region) %>%
+    slice_min((left_time_boundary / mu) * gen, n = 1) %>%
+    ungroup()
+  
+  # Build plot
+  p <- ggplot(msmc_data, aes(
+      x = (left_time_boundary / mu) * gen,
+      y = (1 / lambda_00) / (2 * mu),
+      group = sample,
+      color = continent
+    )) +
+    geom_step(size = line_size) +
+    geom_text_repel(
+      data = labels_df,
+      aes(
+        x = (left_time_boundary / mu) * gen,
+        y = (1 / lambda_00) / (2 * mu),
+        label = region,
+        color = continent
+      ),
+      size = 3,
+      direction = "y",
+      hjust = 1,
+      segment.color = NA,
+      inherit.aes = FALSE
+    ) +
+    scale_color_manual(values = continent_colors) +
+    scale_x_log10(
+      limits = logx_limits,
+      breaks = scales::trans_breaks("log10", function(x) 10^x),
+      labels = scales::trans_format("log10", scales::math_format(10^.x))
+    ) +
+    scale_y_log10(
+      limits = logy_limits,
+      breaks = scales::trans_breaks("log10", function(x) 10^x),
+      labels = scales::trans_format("log10", scales::math_format(10^.x))
+    ) +
+    facet_wrap(~ continent, scales = "fixed") +
+    theme_classic() +
+    theme(legend.position = "none") +
+    annotation_logticks() +
+    labs(x = "Time (years)", y = "Effective population size (Ne)")
+  
+  return(p)
+}
+
+# === Usage ===
+
+# Full plot with all samples
+full_plot <- plot_MSMC_facets(msmc_allsamples_annotated, continent_colors, mu, gen)
+
+# Highlight plot with only specific samples
+highlight_samples_list <- c("LIS935", "S212760", "S120237", "ORC_S13-2559")
+highlight_plot <- plot_MSMC_facets(msmc_allsamples_annotated, continent_colors, mu, gen,
+                                   highlight_samples = highlight_samples_list)
+
+# Save plots
+ggsave(file.path(MSMC_allsamples_dir, "msmc_allsamples_faceted.png"),
+       full_plot, width = 20, height = 20, dpi = 300)
+
+ggsave(file.path(MSMC_allsamples_dir, "msmc_highlight_samples_faceted.png"),
+       highlight_plot, width = 20, height = 20, dpi = 300)
 
 ```
