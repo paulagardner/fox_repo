@@ -1,8 +1,6 @@
 ----
 title: "plots"
 ----
-
-
 ######################## ACTUALLY RUNNING THESE THINGS ########################
 #would it make more sense to run the code in separate .R scripts and pull the information from theere? 
 #for instance https://www.reddit.com/r/bioinformatics/comments/13hzttk/seeking_advice_on_managing_r_markdown_code_and/
@@ -49,6 +47,7 @@ metadata$continent <- factor(metadata$continent, levels = continent_order) #conv
 #####
 continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continent_order), name = "Set2"), continent_order)
 
+plots_dir <- "/gpfs/data/bergstrom/paula/fox_repo/plotting/"
 
 ```
 
@@ -115,8 +114,8 @@ p <- ggplot(pca_meta, aes(x = PC1, y = PC2, color = continent)) +
     legend.text = element_text(size = 12),
     legend.title = element_text(size = 14)
   ) +
-  scale_color_manual(values = continent_colors) +
-  coord_fixed() # comment out the + and coord_fixed if you want a nice square aspect ratio,
+  scale_color_manual(values = continent_colors) #+
+  #coord_fixed() # comment out the + and coord_fixed if you want a nice square aspect ratio,
                 # as this makes 1 unit in x = 1 unit in y. This overrides any ggsave options
 
   
@@ -168,7 +167,7 @@ pca2_plot <- plot_pca(
   plot_title = "PCA with YPI1082",
   continent_colors = continent_colors
 )
-
+# YPI1082 Poster Version
 pca2_plot <- plot_pca(
   evec_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec",
   eval_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes.pca.eval",
@@ -179,6 +178,46 @@ pca2_plot <- plot_pca(
   continent_colors = continent_colors,
   poster = TRUE
 )
+
+
+#################
+# --- 1. Update metadata to include zsh2022 ---
+metadata2 <- metadata %>%
+  bind_rows(
+    tibble(
+      sample = "zsh2022",
+      continent = "Asia",       # assign the correct continent
+      region = "Unknown"        # replace with actual region if known
+    )
+  )
+
+# --- 2. Define file paths ---
+evec_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/corsac_eigenstrat/Vvulpes_zsh2022_tidy.evec"
+eval_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_zsh2022.pca.eval"
+
+# --- 3. Call the plot_pca() function for normal plot ---
+pca_zsh2022_plot <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata2,
+  point_label = "sample",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_with_zsh2022.png",
+  plot_title = "PCA including zsh2022",
+  continent_colors = continent_colors
+)
+
+# --- 4. Poster version ---
+pca_zsh2022_plot_poster <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata2,
+  point_label = "sample",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_with_zsh2022_poster.png",
+  plot_title = "PCA including zsh2022",
+  continent_colors = continent_colors,
+  poster = TRUE
+)
+
 ```
 
 
@@ -392,18 +431,27 @@ ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/heterozygosity_plot.png",
 
 ```
 
-
-
 ```{r}
 # ==========================================
-#                   MSMC
+#                MSMC PLOTS
 # ==========================================
-##############DO AGAIN WITH ALL POPULATIONS INDIVIDUALLY
-mu  <- 4.5e-9   # mutation rate from gray wolves, as used in the montane foxes 2024 paper
-gen <- 2         # generation time in years
 
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(scales)
+
+# === Parameters ===
+mu  <- 4.5e-9   # mutation rate (gray wolves; Montane foxes 2024)
+gen <- 2         # generation time in years
 MSMC_allsamples_dir <- "/gpfs/data/bergstrom/paula/fox_repo/MSMC/autosomal_popsize_msmc"
-MSMC_all_samples_files <- list.files(MSMC_allsamples_dir, pattern = "*\\.msmc\\.final\\.txt$", full.names = TRUE)
+
+# === Load MSMC results ===
+MSMC_all_samples_files <- list.files(
+  MSMC_allsamples_dir,
+  pattern = "*\\.msmc\\.final\\.txt$",
+  full.names = TRUE
+)
 
 msmc_allsamples <- do.call(rbind, lapply(MSMC_all_samples_files, function(f) {
   df <- read.table(f, header = TRUE)
@@ -427,103 +475,30 @@ msmc_allsamples_annotated <- msmc_allsamples %>%
   filter(!is.na(continent))    # keep only foxes that passed the heterozygosity filter
 
 
-
-# Get one point per sample: the leftmost (minimum x) row
-labels_df <- msmc_allsamples_annotated %>%
-  group_by(sample, continent, region) %>%
-  slice_min((left_time_boundary / mu) * gen, n = 1) %>%
-  ungroup()
-
-MSMC_PLOT <- ggplot(
-  msmc_allsamples_annotated,
-  aes(
-    x = (left_time_boundary / mu) * gen,
-    y = (1 / lambda_00) / (2 * mu),
-    group = sample,
-    color = continent
-  )
-) +
-  geom_step() +
-  geom_text_repel(
-    data = labels_df,
-    aes(
-      x = (left_time_boundary / mu) * gen,
-      y = (1 / lambda_00) / (2 * mu),
-      label = region,
-      color = continent
-    ),
-    size = 3,
-    direction = "y",
-    hjust = 1,
-    segment.color = NA,
-    inherit.aes = FALSE
-  ) +
-  scale_color_manual(values = continent_colors) +   # <--- reuse the same colors
-  scale_x_log10(
-    limits = c(10000, 1000000),
-    breaks = scales::trans_breaks("log10", function(x) 10^x),
-    labels = scales::trans_format("log10", scales::math_format(10^.x))
-  ) +
-  scale_y_log10(
-    limits = c(10000, 500000),
-    breaks = scales::trans_breaks("log10", function(x) 10^x),
-    labels = scales::trans_format("log10", scales::math_format(10^.x))
-  ) +
-  facet_wrap(~ continent, scales = "fixed") +
-  theme_classic() +
-  theme(
-    legend.position = "none"
-  ) +
-  annotation_logticks() +
-  labs(
-    x = "Time (years)",
-    y = "Effective population size (Ne)"
-  )
-
-
-ggsave(
-  file.path(MSMC_allsamples_dir, "msmc_allsamples_faceted_region_labels.png"),
-  MSMC_PLOT,
-  width = 20,
-  height = 20,
-  dpi = 300
-)
-
-```
-
-
-
-```{r}
-library(ggplot2)
-library(dplyr)
-library(ggrepel)
-
-# Plotting function
+# === MSMC plotting function ===
 plot_MSMC_facets <- function(msmc_data, continent_colors, mu, gen,
                              highlight_samples = NULL,
                              logx_limits = c(10000, 1000000),
                              logy_limits = c(10000, 500000),
                              line_size = 0.8) {
   
-  # Optionally filter for highlighted samples
+  # Optionally restrict to highlight samples
   if (!is.null(highlight_samples)) {
-    msmc_data <- msmc_data %>%
-      filter(sample %in% highlight_samples)
+    msmc_data <- msmc_data %>% filter(sample %in% highlight_samples)
   }
   
-  # Generate labels: leftmost point per sample
+  # Label one point per sample (leftmost time)
   labels_df <- msmc_data %>%
     group_by(sample, continent, region) %>%
     slice_min((left_time_boundary / mu) * gen, n = 1) %>%
     ungroup()
   
-  # Build plot
-  p <- ggplot(msmc_data, aes(
-      x = (left_time_boundary / mu) * gen,
-      y = (1 / lambda_00) / (2 * mu),
-      group = sample,
-      color = continent
-    )) +
+  ggplot(msmc_data, aes(
+    x = (left_time_boundary / mu) * gen,
+    y = (1 / lambda_00) / (2 * mu),
+    group = sample,
+    color = continent
+  )) +
     geom_step(size = line_size) +
     geom_text_repel(
       data = labels_df,
@@ -542,38 +517,40 @@ plot_MSMC_facets <- function(msmc_data, continent_colors, mu, gen,
     scale_color_manual(values = continent_colors) +
     scale_x_log10(
       limits = logx_limits,
-      breaks = scales::trans_breaks("log10", function(x) 10^x),
-      labels = scales::trans_format("log10", scales::math_format(10^.x))
+      breaks = trans_breaks("log10", function(x) 10^x),
+      labels = trans_format("log10", math_format(10^.x))
     ) +
     scale_y_log10(
       limits = logy_limits,
-      breaks = scales::trans_breaks("log10", function(x) 10^x),
-      labels = scales::trans_format("log10", scales::math_format(10^.x))
+      breaks = trans_breaks("log10", function(x) 10^x),
+      labels = trans_format("log10", math_format(10^.x))
     ) +
     facet_wrap(~ continent, scales = "fixed") +
     theme_classic() +
     theme(legend.position = "none") +
     annotation_logticks() +
     labs(x = "Time (years)", y = "Effective population size (Ne)")
-  
-  return(p)
 }
 
-# === Usage ===
-
-# Full plot with all samples
+# === Generate plots ===
 full_plot <- plot_MSMC_facets(msmc_allsamples_annotated, continent_colors, mu, gen)
 
-# Highlight plot with only specific samples
 highlight_samples_list <- c("LIS935", "S212760", "S120237", "ORC_S13-2559")
-highlight_plot <- plot_MSMC_facets(msmc_allsamples_annotated, continent_colors, mu, gen,
-                                   highlight_samples = highlight_samples_list)
+highlight_plot <- plot_MSMC_facets(
+  msmc_allsamples_annotated,
+  continent_colors,
+  mu, gen,
+  highlight_samples = highlight_samples_list
+)
 
-# Save plots
-ggsave(file.path(MSMC_allsamples_dir, "msmc_allsamples_faceted.png"),
-       full_plot, width = 20, height = 20, dpi = 300)
+# === Save ===
+ggsave(
+  file.path(plots_dir, "msmc_allsamples_faceted.png"),
+  full_plot, width = 20, height = 20, dpi = 300
+)
 
-ggsave(file.path(MSMC_allsamples_dir, "msmc_highlight_samples_faceted.png"),
-       highlight_plot, width = 20, height = 20, dpi = 300)
-
+ggsave(
+  file.path(plots_dir, "msmc_highlight_samples_faceted.png"),
+  highlight_plot, width = 20, height = 20, dpi = 300
+)
 ```
