@@ -435,6 +435,200 @@ ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/heterozygosity_plot.png",
 # ==========================================
 #                MSMC PLOTS
 # ==========================================
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(scales)
+
+run_MSMC_pipeline <- function(MSMC_dir,
+                              order_df,
+                              continent_colors,
+                              plots_dir,
+                              mu = 4.5e-9,     # mutation rate (gray wolves; Montane foxes 2024)
+                              gen = 2,          # generation time in years
+                              highlight_samples_list = NULL,
+                              filtered_df = NULL,    # optional filtering data frame (e.g., filtered_cov_het)
+                              output_file_all = NULL, # specify exact output filename for full plot
+                              output_file_highlight = NULL # specify exact output filename for highlight plot
+) {
+
+  # === Parameters ===
+  # mu and gen come from function arguments above
+
+  # === Load MSMC results ===
+  MSMC_all_samples_files <- list.files(
+    MSMC_dir,
+    pattern = "*\\.msmc\\.final\\.txt$",
+    full.names = TRUE
+  )
+
+  msmc_allsamples <- do.call(rbind, lapply(MSMC_all_samples_files, function(f) {
+    df <- read.table(f, header = TRUE)
+    # get just the number after "pop"
+    #df$population_ID <- as.integer(sub(".*pop([0-9]+)\\.msmc\\.final\\.txt$", "\\1", basename(f)))
+    df$sample <- sub("^(.*)\\.msmc\\.final\\.txt$", "\\1", basename(f))
+    df
+  }))
+  msmc_allsamples
+
+
+  # make a lookup table: one continent per population_ID
+  # Build the lookup only from filtered samples
+  pop_lookup <- order_df %>%
+    semi_join(filtered_df, by = "sample") %>%   # only samples that passed coverage filter
+    select(sample, continent, region) %>%
+    distinct()
+
+  # Join MSMC data with lookup and drop outgroups / low-coverage samples
+  msmc_allsamples_annotated <- msmc_allsamples %>%
+    left_join(pop_lookup, by = "sample") %>%
+    filter(!is.na(continent))    # keep only foxes that passed the heterozygosity filter
+
+
+  # === MSMC plotting function ===
+  plot_MSMC_facets <- function(msmc_data, continent_colors, mu, gen,
+                               highlight_samples = NULL,
+                               logx_limits = c(10000, 1000000),
+                               logy_limits = c(10000, 500000),
+                               line_size = 0.8) {
+
+    # Optionally restrict to highlight samples
+    if (!is.null(highlight_samples)) {
+      msmc_data <- msmc_data %>% filter(sample %in% highlight_samples)
+    }
+
+    # Label one point per sample (leftmost time)
+    labels_df <- msmc_data %>%
+      group_by(sample, continent, region) %>%
+      slice_min((left_time_boundary / mu) * gen, n = 1) %>%
+      ungroup()
+
+    ggplot(msmc_data, aes(
+      x = (left_time_boundary / mu) * gen,
+      y = (1 / lambda_00) / (2 * mu),
+      group = sample,
+      color = continent
+    )) +
+      geom_step(size = line_size) +
+      geom_text_repel(
+        data = labels_df,
+        aes(
+          x = (left_time_boundary / mu) * gen,
+          y = (1 / lambda_00) / (2 * mu),
+          label = region,
+          color = continent
+        ),
+        size = 3,
+        direction = "y",
+        hjust = 1,
+        segment.color = NA,
+        inherit.aes = FALSE
+      ) +
+      scale_color_manual(values = continent_colors) +
+      scale_x_log10(
+        limits = logx_limits,
+        breaks = trans_breaks("log10", function(x) 10^x),
+        labels = trans_format("log10", math_format(10^.x))
+      ) +
+      scale_y_log10(
+        limits = logy_limits,
+        breaks = trans_breaks("log10", function(x) 10^x),
+        labels = trans_format("log10", math_format(10^.x))
+      ) +
+      facet_wrap(~ continent, scales = "fixed") +
+      theme_classic() +
+      theme(legend.position = "none") +
+      annotation_logticks() +
+      labs(x = "Time (years)", y = "Effective population size (Ne)")
+  }
+
+
+  # === Generate plots ===
+  full_plot <- plot_MSMC_facets(msmc_allsamples_annotated, continent_colors, mu, gen)
+
+  # === Save ===
+  if (!dir.exists(plots_dir)) dir.create(plots_dir, recursive = TRUE)
+
+  # Determine filenames — if user gave only a bare filename, prepend plots_dir
+  if (!is.null(output_file_all)) {
+    if (!dirname(output_file_all) %in% c(".", "")) {
+      ggsave(output_file_all, full_plot, width = 20, height = 20, dpi = 300)
+    } else {
+      ggsave(file.path(plots_dir, output_file_all), full_plot, width = 20, height = 20, dpi = 300)
+    }
+  } else {
+    ggsave(file.path(plots_dir, "msmc_allsamples_faceted.png"), full_plot, width = 20, height = 20, dpi = 300)
+  }
+
+  # Only make and save highlight plot if highlight_samples_list is provided
+  highlight_plot <- NULL
+  if (!is.null(highlight_samples_list) && length(highlight_samples_list) > 0) {
+
+    # Allow user to specify a custom data frame for highlights
+    highlight_df <- msmc_allsamples_annotated
+    if (exists("highlight_df_input", inherits = FALSE) && is.data.frame(highlight_df_input)) {
+      highlight_df <- highlight_df_input
+    }
+
+    highlight_plot <- plot_MSMC_facets(
+      highlight_df,
+      continent_colors,
+      mu, gen,
+      highlight_samples = highlight_samples_list
+    )
+
+    if (!is.null(output_file_highlight)) {
+      if (!dirname(output_file_highlight) %in% c(".", "")) {
+        ggsave(output_file_highlight, highlight_plot, width = 20, height = 20, dpi = 300)
+      } else {
+        ggsave(file.path(plots_dir, output_file_highlight), highlight_plot, width = 20, height = 20, dpi = 300)
+      }
+    } else {
+      ggsave(file.path(plots_dir, "msmc_highlight_faceted.png"), highlight_plot, width = 20, height = 20, dpi = 300)
+    }
+  } else {
+    message("ℹ️  No highlight_samples_list provided — skipping highlight plot.")
+  }
+
+  # Return data and plots for reuse
+  return(list(
+    msmc_data = msmc_allsamples_annotated,
+    full_plot = full_plot,
+    highlight_plot = highlight_plot,
+    output_files = list(all = output_file_all, highlight = output_file_highlight)
+  ))
+}
+
+
+# === Example usage ===
+
+# 1. With filtering, highlight list, and custom filenames
+automsomes <- run_MSMC_pipeline(
+  MSMC_dir = "/gpfs/data/bergstrom/paula/fox_repo/MSMC/autosomal_popsize_msmc",
+  order_df = order_df,
+  continent_colors = continent_colors,
+  plots_dir = plots_dir,
+  filtered_df = filtered_cov_het,
+  highlight_samples_list = c("LIS935", "S212760", "S120237", "ORC_S13-2559"),
+  output_file_all = "msmc_autosomes_full.png",
+  output_file_highlight = "msmc_autosomes_highlighted.png"
+)
+
+Xchr <- run_MSMC_pipeline(
+  MSMC_dir = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/X_chromosomes/MSMC/popsize_for_pseudodiploids",
+  plots_dir = plots_dir,
+  output_file_all = "Xchr_full.png",
+  output_file_highlight = "msmc_autosomes_highlighted.png"
+)
+
+
+```
+
+
+```{r}
+# ==========================================
+#                MSMC PLOTS (NON-FUNCTION-based)
+# ==========================================
 
 library(ggplot2)
 library(dplyr)
@@ -455,102 +649,407 @@ MSMC_all_samples_files <- list.files(
 
 msmc_allsamples <- do.call(rbind, lapply(MSMC_all_samples_files, function(f) {
   df <- read.table(f, header = TRUE)
-  # get just the number after "pop"
-  #df$population_ID <- as.integer(sub(".*pop([0-9]+)\\.msmc\\.final\\.txt$", "\\1", basename(f)))
   df$sample <- sub("^(.*)\\.msmc\\.final\\.txt$", "\\1", basename(f))
   df
 }))
-msmc_allsamples
 
-# make a lookup table: one continent per population_ID
-# Build the lookup only from filtered samples
+# === Annotate samples ===
 pop_lookup <- order_df %>%
-  semi_join(filtered_cov_het, by = "sample") %>%   # only samples that passed coverage filter
+  semi_join(filtered_cov_het, by = "sample") %>%
   select(sample, continent, region) %>%
   distinct()
 
-# Join MSMC data with lookup and drop outgroups / low-coverage samples
-msmc_allsamples_annotated <- msmc_allsamples %>%
+msmc_annotated <- msmc_allsamples %>%
   left_join(pop_lookup, by = "sample") %>%
-  filter(!is.na(continent))    # keep only foxes that passed the heterozygosity filter
-
+  filter(!is.na(continent))
 
 # === MSMC plotting function ===
 plot_MSMC_facets <- function(msmc_data, continent_colors, mu, gen,
-                             highlight_samples = NULL,
-                             logx_limits = c(10000, 1000000),
-                             logy_limits = c(10000, 500000),
-                             line_size = 0.8) {
-  
-  # Optionally restrict to highlight samples
-  if (!is.null(highlight_samples)) {
+                             highlight_samples = NULL) {
+  if (!is.null(highlight_samples))
     msmc_data <- msmc_data %>% filter(sample %in% highlight_samples)
-  }
-  
-  # Label one point per sample (leftmost time)
+
   labels_df <- msmc_data %>%
     group_by(sample, continent, region) %>%
     slice_min((left_time_boundary / mu) * gen, n = 1) %>%
     ungroup()
-  
+
   ggplot(msmc_data, aes(
     x = (left_time_boundary / mu) * gen,
     y = (1 / lambda_00) / (2 * mu),
-    group = sample,
-    color = continent
-  )) +
-    geom_step(size = line_size) +
-    geom_text_repel(
-      data = labels_df,
-      aes(
-        x = (left_time_boundary / mu) * gen,
-        y = (1 / lambda_00) / (2 * mu),
-        label = region,
-        color = continent
-      ),
-      size = 3,
-      direction = "y",
-      hjust = 1,
-      segment.color = NA,
-      inherit.aes = FALSE
-    ) +
+    group = sample, color = continent)) +
+    geom_step(size = 0.8) +
+    geom_text_repel(data = labels_df,
+      aes(label = region, color = continent),
+      size = 3, direction = "y", hjust = 1, segment.color = NA) +
     scale_color_manual(values = continent_colors) +
-    scale_x_log10(
-      limits = logx_limits,
-      breaks = trans_breaks("log10", function(x) 10^x),
-      labels = trans_format("log10", math_format(10^.x))
-    ) +
-    scale_y_log10(
-      limits = logy_limits,
-      breaks = trans_breaks("log10", function(x) 10^x),
-      labels = trans_format("log10", math_format(10^.x))
-    ) +
-    facet_wrap(~ continent, scales = "fixed") +
-    theme_classic() +
-    theme(legend.position = "none") +
+    scale_x_log10(limits = c(1e3, 1e6), breaks = trans_breaks("log10", function(x) 10^x),
+                  labels = trans_format("log10", math_format(10^.x))) +
+    scale_y_log10(limits = c(1e3, 1e7), breaks = trans_breaks("log10", function(x) 10^x),
+                  labels = trans_format("log10", math_format(10^.x))) +
+    facet_wrap(~continent, scales = "fixed") +
+    theme_classic() + theme(legend.position = "none") +
     annotation_logticks() +
     labs(x = "Time (years)", y = "Effective population size (Ne)")
 }
 
-# === Generate plots ===
-full_plot <- plot_MSMC_facets(msmc_allsamples_annotated, continent_colors, mu, gen)
+# === Generate and save plots ===
+full_plot <- plot_MSMC_facets(msmc_annotated, continent_colors, mu, gen)
+highlight_samples <- c("LIS935", "S212760", "S120237", "ORC_S13-2559")
+highlight_plot <- plot_MSMC_facets(msmc_annotated, continent_colors, mu, gen,
+                                   highlight_samples = highlight_samples)
 
-highlight_samples_list <- c("LIS935", "S212760", "S120237", "ORC_S13-2559")
-highlight_plot <- plot_MSMC_facets(
-  msmc_allsamples_annotated,
-  continent_colors,
-  mu, gen,
-  highlight_samples = highlight_samples_list
-)
-
-# === Save ===
-ggsave(
-  file.path(plots_dir, "msmc_allsamples_faceted.png"),
-  full_plot, width = 20, height = 20, dpi = 300
-)
-
-ggsave(
-  file.path(plots_dir, "msmc_highlight_samples_faceted.png"),
-  highlight_plot, width = 20, height = 20, dpi = 300
-)
+ggsave(file.path(plots_dir, "msmc_allsamples_faceted.png"), full_plot, width = 20, height = 20, dpi = 300)
+ggsave(file.path(plots_dir, "msmc_highlight_samples_faceted.png"), highlight_plot, width = 20, height = 20, dpi = 300)
 ```
+
+
+```{r}
+# ==========================================
+#      MSMC PLOTS — PSEUDODIPLOIDS (ALL FACETS, FIXED LABELS)
+# ==========================================
+
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(scales)
+library(stringr)
+library(RColorBrewer) 
+
+# === Parameters ===
+mu  <- (4.5e-9*0.75)    # mutation rate
+gen <- 2         # generation time (years)
+MSMC_pseudo_dir <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/X_chromosomes/MSMC/popsize_for_pseudodiploids"
+plots_dir       <- "/gpfs/data/bergstrom/paula/fox_repo/plotting"
+
+# === Load pseudodiploid MSMC results ===
+MSMC_pseudo_files <- list.files(MSMC_pseudo_dir, pattern = "*.msmc.final.txt$", full.names = TRUE)
+if (length(MSMC_pseudo_files) == 0) stop("No pseudodiploid MSMC files found!")
+
+msmc_pseudo <- do.call(rbind, lapply(MSMC_pseudo_files, function(f) {
+  df <- read.table(f, header = TRUE)
+  pair <- strsplit(sub("\\.msmc\\.final\\.txt$", "", basename(f)), "\\.")[[1]]
+  df$sample1 <- pair[1]
+  df$sample2 <- pair[2]
+  df
+}))
+
+# === Annotate with sample metadata ===
+#lookup <- order_df %>%
+#  select(sample, continent, region)
+
+# ensure continent is character, not numeric/factor code
+#lookup <- lookup %>%
+#  mutate(continent = as.character(continent))
+
+msmc_pseudo <- msmc_pseudo %>%
+  left_join(pop_lookup, by = c("sample1" = "sample")) %>%
+  rename(continent1 = continent, region1 = region) %>%
+  left_join(pop_lookup, by = c("sample2" = "sample")) %>%
+  rename(continent2 = continent, region2 = region) %>%
+  filter(!is.na(continent1), !is.na(continent2))
+
+# === Normalize continent-pair names to ignore reversed pairs ===
+normalize_pair <- function(x, y) {
+  apply(cbind(x, y), 1, function(z) paste(sort(z), collapse = "-"))
+}
+
+msmc_pseudo <- msmc_pseudo %>%
+  mutate(
+    continent1 = as.character(continent1),
+    continent2 = as.character(continent2),
+    continent_pair = normalize_pair(continent1, continent2)
+  )
+
+# verify the continent_pair names
+print(unique(msmc_pseudo$continent_pair))
+
+# === Build color palette dynamically ===
+unique_pairs <- sort(unique(msmc_pseudo$continent_pair))
+palette_name <- "Dark2"  # alternatives: "Paired", "Accent", "Set1"
+n_colors <- length(unique_pairs)
+
+pair_colors <- setNames(
+  colorRampPalette(
+    brewer.pal(min(8, brewer.pal.info[palette_name, "maxcolors"]), palette_name)
+  )(n_colors),
+  unique_pairs
+)
+
+# === Combined faceted plot ===
+combined_plot <- ggplot(msmc_pseudo, aes(
+  x = (left_time_boundary / mu) * gen,
+  y = (1 / lambda_00) / (2 * mu),
+  group = interaction(sample1, sample2),
+  color = continent_pair
+)) +
+  geom_step(size = 0.8, alpha = 0.8) +
+  scale_color_manual(values = pair_colors, name = "Continent pair") +
+  scale_x_log10(
+    limits = c(1e4, 1e7),
+    breaks = trans_breaks("log10", function(x) 10^x),
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
+  scale_y_log10(
+    limits = c(1e3, 1e13),
+    breaks = trans_breaks("log10", function(x) 10^x),
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
+  facet_wrap(~continent_pair, scales = "fixed") +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold", size = 12),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13),
+    panel.spacing = unit(1, "lines")
+  ) +
+  annotation_logticks() +
+  labs(
+    x = "Time (years)",
+    y = "Effective population size (Ne)", #sort of true, not really, as this should be a proxy for 
+    #divergence time, instead. think about units etc
+    title = "MSMC Y chromosomes by continent pair"
+  )
+
+# === Save the combined plot ===
+out_file <- file.path(plots_dir, "MSMC_pseudodiploids_all_pairs.png")
+ggsave(out_file, combined_plot, width = 16, height = 10, dpi = 300)
+
+message(" Combined plot saved: ", out_file)
+
+
+```
+
+
+```{r}
+# ==========================================
+#   MSMC PLOTS — PSEUDODIPLOIDS (COWPLOT VERSION)
+# ==========================================
+
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(scales)
+library(stringr)
+library(RColorBrewer)
+library(cowplot)
+
+# === Parameters ===
+mu  <- (4.5e-9*0.75)    # mutation rate
+gen <- 2               # generation time (years)
+MSMC_pseudo_dir <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/X_chromosomes/MSMC/popsize_for_pseudodiploids"
+plots_dir       <- "/gpfs/data/bergstrom/paula/fox_repo/plotting"
+
+# === Load pseudodiploid MSMC results ===
+MSMC_pseudo_files <- list.files(MSMC_pseudo_dir, pattern = "*.msmc.final.txt$", full.names = TRUE)
+if (length(MSMC_pseudo_files) == 0) stop("No pseudodiploid MSMC files found!")
+
+msmc_pseudo <- do.call(rbind, lapply(MSMC_pseudo_files, function(f) {
+  df <- read.table(f, header = TRUE)
+  pair <- strsplit(sub("\\.msmc\\.final\\.txt$", "", basename(f)), "\\.")[[1]]
+  df$sample1 <- pair[1]
+  df$sample2 <- pair[2]
+  df
+}))
+
+# === Annotate with metadata ===
+msmc_pseudo <- msmc_pseudo %>%
+  left_join(pop_lookup, by = c("sample1" = "sample")) %>%
+  rename(continent1 = continent, region1 = region) %>%
+  left_join(pop_lookup, by = c("sample2" = "sample")) %>%
+  rename(continent2 = continent, region2 = region) %>%
+  filter(!is.na(continent1), !is.na(continent2))
+
+# === Normalize continent pair names ===
+normalize_pair <- function(x, y) {
+  apply(cbind(x, y), 1, function(z) paste(sort(z), collapse = "-"))
+}
+
+msmc_pseudo <- msmc_pseudo %>%
+  mutate(
+    continent1 = as.character(continent1),
+    continent2 = as.character(continent2),
+    continent_pair = normalize_pair(continent1, continent2)
+  )
+
+unique_pairs <- sort(unique(msmc_pseudo$continent_pair))
+print(unique_pairs)
+
+# === Build color palette ===
+palette_name <- "Dark2"
+pair_colors <- setNames(
+  colorRampPalette(
+    brewer.pal(min(8, brewer.pal.info[palette_name, "maxcolors"]), palette_name)
+  )(length(unique_pairs)),
+  unique_pairs
+)
+
+# === Fixed axis limits (same as your plot) ===
+xlims <- c(1e4, 1e7)
+ylims <- c(1e3, 1e13)
+
+# ==========================================
+#         COWPLOT MULTI-PANEL SYSTEM
+# ==========================================
+
+ncol_facets <- 4
+plot_width  <- 16
+plot_height <- 12
+
+# ---- function to create one panel ----
+make_panel <- function(df_panel, pair_name) {
+
+  p <- ggplot(df_panel, aes(
+      x = (left_time_boundary / mu) * gen,
+      y = (1 / lambda_00) / (2 * mu),
+      group = interaction(sample1, sample2),
+      color = continent_pair
+    )) +
+    geom_step(size = 0.8, alpha = 0.8) +
+    scale_color_manual(values = pair_colors, name = "Continent pair") +
+    scale_x_log10(
+      limits = xlims,
+      breaks = trans_breaks("log10", function(x) 10^x),
+      labels = trans_format("log10", math_format(10^.x))
+    ) +
+    scale_y_log10(
+      limits = ylims,
+      breaks = trans_breaks("log10", function(x) 10^x),
+      labels = trans_format("log10", math_format(10^.x))
+    ) +
+    annotation_logticks() +
+    theme_classic(base_size = 14) +
+    theme(
+      legend.position = "none",
+      axis.text = element_text(size = 10),
+      axis.title = element_text(size = 12),
+      plot.margin = margin(t = 5, r = 5, b = 25, l = 5)
+    ) +
+    labs(
+      x = NULL,
+      y = NULL,
+      title = pair_name
+    ) +
+    coord_cartesian(clip = "off")
+
+  p 
+}
+
+# ---- build panels ----
+panels <- lapply(unique_pairs, function(pair) {
+  df_panel <- msmc_pseudo %>% filter(continent_pair == pair)
+  make_panel(df_panel, pair)
+})
+
+# ---- build shared legend ----
+legend_plot <- ggplot(msmc_pseudo, aes(
+    x = (left_time_boundary / mu) * gen,
+    y = (1 / lambda_00) / (2 * mu),
+    color = continent_pair
+  )) +
+  geom_step() +
+  scale_color_manual(values = pair_colors, name = "Continent pair") +
+  theme(legend.position = "bottom")
+
+shared_legend <- get_legend(legend_plot)
+
+# ---- Shared labels ----
+x_label_grob <- ggdraw() + draw_label("Time (years)", size = 14)
+y_label_grob <- ggdraw() + draw_label("Effective population size (Ne)",
+                                      size = 14, angle = 90)
+
+# ---- panel grid ----
+panel_grid <- plot_grid(plotlist = panels, ncol = ncol_facets, align = "hv")
+
+# ---- assemble full plot ----
+left_with_panels <- plot_grid(
+  y_label_grob,
+  panel_grid,
+  ncol = 2,
+  rel_widths = c(0.06, 0.94)
+)
+
+with_x <- plot_grid(
+  left_with_panels,
+  x_label_grob,
+  ncol = 1,
+  rel_heights = c(1, 0.03)
+)
+
+final_plot <- plot_grid(
+  with_x,
+  shared_legend,
+  ncol = 1,
+  rel_heights = c(1, 0.06)
+)
+
+# ---- save ----
+out_file <- file.path(plots_dir, "MSMC_pseudodiploids_all_pairs_grid.png")
+ggsave(out_file, final_plot, width = plot_width, height = plot_height, dpi = 300)
+
+message(" Combined plot saved: ", out_file)
+```
+
+
+
+```{r}
+# === Directory for individual pseudodiploid plots ===
+individual_dir <- file.path(plots_dir, "MSMC_pseudodiploids_individual_pairs")
+if (!dir.exists(individual_dir)) {
+  dir.create(individual_dir, recursive = TRUE)
+  message(" Created directory: ", individual_dir)
+}
+
+# === Generate individual plots for each sample1-sample2 pair ===
+pair_list <- msmc_pseudo %>%
+  distinct(sample1, sample2) %>%
+  mutate(pair_id = paste(sample1, sample2, sep = "_"))
+
+for (i in seq_len(nrow(pair_list))) {
+  s1 <- pair_list$sample1[i]
+  s2 <- pair_list$sample2[i]
+  pid <- pair_list$pair_id[i]
+
+  df_sub <- msmc_pseudo %>% filter(sample1 == s1, sample2 == s2)
+
+  # determine the proper continent pair color
+  cp <- unique(df_sub$continent_pair)
+  col <- pair_colors[cp]
+
+  p <- ggplot(df_sub, aes(
+    x = (left_time_boundary / mu) * gen,
+    y = (1 / lambda_00) / (2 * mu)
+  )) +
+    geom_step(size = 0.9, color = col, alpha = 0.9) +
+    scale_x_log10(
+      limits = c(1e4, 1e6),
+      breaks = trans_breaks("log10", function(x) 10^x),
+      labels = trans_format("log10", math_format(10^.x))
+    ) +
+    scale_y_log10(
+      limits = c(1e3, 1e13),
+      breaks = trans_breaks("log10", function(x) 10^x),
+      labels = trans_format("log10", math_format(10^.x))
+    ) +
+    theme_classic(base_size = 14) +
+    theme(
+      axis.text = element_text(size = 11),
+      axis.title = element_text(size = 13)
+    ) +
+    annotation_logticks() +
+    labs(
+      x = "Time (years)",
+      y = "Effective population size (Ne)",
+      title = paste0("MSMC Y chromosome pair: ", s1, " × ", s2),
+      subtitle = paste("Continent pair:", cp)
+    )
+
+  out_file_indiv <- file.path(individual_dir, paste0("MSMC_", pid, ".png"))
+  ggsave(out_file_indiv, p, width = 8, height = 6, dpi = 300)
+
+  message(" Saved individual plot: ", out_file_indiv)
+}
+
+```
+
