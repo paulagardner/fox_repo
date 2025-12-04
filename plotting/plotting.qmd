@@ -523,356 +523,6 @@ ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/heterozygosity_plot.png",
 
 ```
 
-```{r}
-library("ggh4x")
-
-# === Parameters ===
-mu  <- 4.5e-9   # mutation rate
-gen <- 2        # generation time in years
-MSMC_allsamples_dir <- "/gpfs/data/bergstrom/paula/fox_repo/MSMC/autosomal_popsize_msmc"
-
-# === Load MSMC results for autosomes ===
-MSMC_all_samples_files <- list.files(
-  MSMC_allsamples_dir,
-  pattern = "*\\.msmc\\.final\\.txt$",
-  full.names = TRUE
-)
-
-msmc_allsamples <- do.call(rbind, lapply(MSMC_all_samples_files, function(f) {
-  df <- read.table(f, header = TRUE)
-  df$sample <- sub("^(.*)\\.msmc\\.final\\.txt$", "\\1", basename(f))
-  df
-}))
-
-# === Annotate samples with continent and region ===
-pop_lookup <- order_df %>%
-  semi_join(filtered_cov_het, by = "sample") %>%
-  select(sample, continent, region) %>%
-  distinct()
-
-msmc_annotated <- msmc_allsamples %>%
-  left_join(pop_lookup, by = "sample") %>%
-  filter(!is.na(continent))
-
-# Force factor levels to match autosome palette
-msmc_annotated$continent <- factor(
-  msmc_annotated$continent,
-  levels = names(continent_colors)
-)
-
-library(dplyr)
-library(stringr)
-
-# === Load pseudodiploid MSMC results ===
-MSMC_pseudo_dir <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/X_chromosomes/MSMC/popsize_for_pseudodiploids"
-
-MSMC_pseudo_files <- list.files(
-  MSMC_pseudo_dir,
-  pattern = "*.msmc.final.txt$",
-  full.names = TRUE
-)
-
-if (length(MSMC_pseudo_files) == 0)
-  stop("No pseudodiploid MSMC files found!")
-
-msmc_pseudo <- do.call(rbind, lapply(MSMC_pseudo_files, function(f) {
-  df <- read.table(f, header = TRUE)
-  pair <- strsplit(sub("\\.msmc\\.final\\.txt$", "", basename(f)), "\\.")[[1]]
-  df$sample1 <- pair[1]
-  df$sample2 <- pair[2]
-  df
-}))
-
-# Annotate pseudodiploids
-msmc_pseudo <- msmc_pseudo %>%
-  left_join(pop_lookup, by = c("sample1" = "sample")) %>%
-  rename(continent1 = continent, region1 = region) %>%
-  left_join(pop_lookup, by = c("sample2" = "sample")) %>%
-  rename(continent2 = continent, region2 = region) %>%
-  mutate(
-    continent1 = as.character(continent1),
-    continent2 = as.character(continent2),
-    continent_pair = apply(
-      cbind(continent1, continent2), 1,
-      function(z) paste(sort(z), collapse = "-")
-    ),
-    pair_id = paste(sample1, sample2, sep = "_")
-  )
-
-# ====================================================================
-# === MSMC FACET PLOTTING FUNCTION (bottom x-axis on all facets) ====
-# ====================================================================
-
-plot_msmc_facet <- function(
-  msmc_data,
-  mu,
-  gen,
-  panel_grouping_var,
-  group_line_var,
-  color_var,
-  label_var = NULL,
-  highlight_var = NULL,
-  highlight_values = NULL,
-  ncol_panels = 4,
-  xlims = c(1e4, 1e7),
-  ylims = c(1e3, 1e7),
-  manual_colors = NULL,
-  use_log_guides = TRUE,
-  save_file = NULL
-) {
-
-  # ----- Optional filtering (highlighting) -----
-  if (!is.null(highlight_values)) {
-    if (is.null(highlight_var))
-      stop("highlight_var must be supplied if highlight_values is used.")
-
-    msmc_data <- msmc_data %>%
-      dplyr::filter(.data[[highlight_var]] %in% highlight_values)
-
-    if (nrow(msmc_data) == 0)
-      stop("No rows left after filtering highlight_var/highlight_values.")
-  }
-
-  # ----- Determine color palette -----
-  if (!is.null(manual_colors)) {
-    palette_vals <- manual_colors
-  } else {
-    groups <- sort(unique(msmc_data[[color_var]]))
-    palette_vals <- setNames(
-      colorRampPalette(RColorBrewer::brewer.pal(8, "Dark2"))(length(groups)),
-      groups
-    )
-  }
-
-  # ====== LOG SCALE SECTION ======
-
-  # ggh4x changed guide names in 0.3.x; use "log"
-  if (use_log_guides) {
-    x_scale <- scale_x_log10(limits = xlims)
-    y_scale <- scale_y_log10(limits = ylims)
-  } else {
-    x_scale <- scale_x_log10(limits = xlims)
-    y_scale <- scale_y_log10(limits = ylims)
-  }
-
-
-  # ----- label positions (optional) -----
-  labels_df <- NULL
-  if (!is.null(label_var)) {
-    labels_df <- msmc_data %>%
-      dplyr::group_by(across(all_of(c(panel_grouping_var, group_line_var)))) %>%
-      slice_min((left_time_boundary / mu) * gen, n = 1) %>%
-      dplyr::ungroup()
-  }
-
-  # ----- Build plot -----
-  p <- ggplot(
-    msmc_data,
-    aes(
-      x = (left_time_boundary / mu) * gen,
-      y = (1 / lambda_00) / (2 * mu),
-      group = .data[[group_line_var]],
-      color = .data[[color_var]]
-    )
-  ) +
-    geom_step(alpha = 0.9) +
-    scale_color_manual(values = palette_vals) +
-    x_scale +
-    y_scale +
-    ggh4x::facet_wrap2(
-      as.formula(paste0("~", panel_grouping_var)),
-      ncol = ncol_panels,
-      scales = "fixed",
-      axes = "all",
-      strip = ggh4x::strip_vanilla()
-    ) +
-    theme_bw(base_size = 12) +
-    theme(
-      legend.position = "bottom",
-      strip.text = element_text(size = 12, face = "bold"),
-      axis.text.x.top = element_blank(),
-      axis.ticks.x.top = element_blank(),
-      axis.text.y.right = element_blank(),
-      axis.ticks.y.right = element_blank()
-    ) + 
-  ggplot2::annotation_logticks(sides = "bl")  # <-- ADD THIS LINE HERE
-
-  # optional labels
-  if (!is.null(label_var)) {
-    p <- p +
-      ggrepel::geom_text_repel(
-        data = labels_df,
-        aes(label = .data[[label_var]]),
-        size = 3,
-        segment.color = NA
-      )
-  }
-
-  if (!is.null(save_file)) {
-    ggsave(save_file, p, width = 12, height = 8, dpi = 300)
-  }
-
-  return(p)
-}
-
-
-
-
-
-# ====================================================================
-# === PLOTS ==========================================================
-# ====================================================================
-
-autosomal_plot <- plot_msmc_facet(
-  msmc_data = msmc_annotated,
-  mu = mu,
-  gen = gen,
-  panel_grouping_var = "continent",
-  color_var = "continent",
-  group_line_var = "sample",
-  label_var = "region",
-  ncol_panels = 2,
-  xlims = c(1e4, 1e7),
-  ylims = c(1e3, 1e7),
-  manual_colors = continent_colors,
-  save_file = file.path(plots_dir, "msmc_all_samples_facet.png")
-)
-
-highlight_plot <- plot_msmc_facet(
-  msmc_data = msmc_annotated,
-  mu = mu,
-  gen = gen,
-  panel_grouping_var = "continent",
-  color_var = "continent",
-  group_line_var = "sample",
-  label_var = "region",
-  highlight_var = "sample",
-  highlight_values = highlight_samples,
-  ncol_panels = 2,
-  ylims = c(1e3, 1e7),
-  manual_colors = continent_colors,
-  save_file = file.path(plots_dir, "msmc_highlight_samples_facet.png")
-)
-
-pseudo_mu <- mu * 0.75
-
-pseudodip_plot <- plot_msmc_facet(
-  msmc_data = msmc_pseudo,
-  mu = pseudo_mu,
-  gen = gen,
-  panel_grouping_var = "continent_pair",
-  color_var = "continent_pair",
-  group_line_var = "pair_id",
-  ncol_panels = 4,
-  xlims = c(1e5, 1e7),
-  ylims = c(1e3, 1e8),
-  save_file = file.path(plots_dir, "MSMC_pseudodiploids_facet.png")
-)
-
-# Keep only the continent pairs you want
-pseudo_asia <- msmc_pseudo %>%
-  filter(continent_pair %in% c("Asia-WestAsia/NorthAfrica", "Americas-Asia", "Asia-Europe")) #sensitive to actual names in the original df, so make sure orders aren't reversed, etc
-
-asia_pseudodip_plot <- plot_msmc_facet(
-  msmc_data = pseudo_asia, 
-  mu = pseudo_mu,
-  gen = gen,
-  panel_grouping_var = "continent_pair",
-  color_var = "continent_pair",
-  group_line_var = "pair_id",
-  ncol_panels = 2,
-  xlims = c(1e5, 5e6),
-  ylims = c(7e3, 1e9),
-  save_file = file.path(plots_dir, "MSMC_pseudodiploids_asia.png")
-)
-```
-
-
-
-```{r}
-library(ggplot2)
-library(ggrepel)
-library(dplyr)
-
-plot_pseudodip_overlay <- function(pseudo_pair, autosomal_data, mu, pseudodip_mu, gen, save_file) {
-  
-  # --- Prepare pseudodiploid line ---
-  pseudo_line <- pseudo_pair %>%
-    mutate(
-      time_years = (left_time_boundary / pseudodip_mu) * gen,
-      Ne = (1 / lambda_00) / (2 * pseudodip_mu),
-      type = "pseudodiploid",
-      label = type
-    )
-  
-  # --- Prepare autosomal lines ---
-  auto1 <- autosomal_data %>% filter(sample %in% pseudo_pair$sample1) %>%
-    mutate(
-      time_years = (left_time_boundary / mu) * gen,
-      Ne = (1 / lambda_00) / (2 * mu),
-      type = paste0("autosome_", sample),
-      label = sample
-    )
-  auto2 <- autosomal_data %>% filter(sample %in% pseudo_pair$sample2) %>%
-    mutate(
-      time_years = (left_time_boundary / mu) * gen,
-      Ne = (1 / lambda_00) / (2 * mu),
-      type = paste0("autosome_", sample),
-      label = sample
-    )
-  
-  # --- Combine ---
-  plot_df <- bind_rows(pseudo_line, auto1, auto2) %>%
-    filter(time_years > 0, Ne > 0)
-  
-  # --- Color palette ---
-  palette_vals <- c(
-    "pseudodiploid" = "red",
-    setNames(RColorBrewer::brewer.pal(8, "Set1")[1:2], unique(c(auto1$sample, auto2$sample)))
-  )
-  
-  # --- Label positions ---
-  labels_df <- plot_df %>%
-    group_by(type) %>%
-    slice_max(time_years, n = 1) %>%  # position labels at largest time
-    ungroup()
-  
-  # --- Build plot ---
-  p <- ggplot(plot_df, aes(x = time_years, y = Ne, color = type, group = type)) +
-    geom_step(size = 1) +
-    geom_text_repel(data = labels_df, aes(label = label), size = 3, nudge_x = 0, segment.color = NA) +
-    scale_color_manual(values = palette_vals) +
-    scale_x_log10() + scale_y_log10() +
-    theme_bw(base_size = 12) +
-    theme(
-      legend.position = "none",
-      axis.ticks = element_line(),
-      axis.text = element_text(size = 10),
-      axis.title = element_text(size = 12)
-    ) +
-    annotation_logticks(sides = "bl") +
-    labs(x = "Time (years)", y = "Ne")
-  
-  # --- Save plot ---
-  if (!is.null(save_file)) {
-    ggsave(save_file, p, width = 10, height = 6, dpi = 300)
-  }
-  
-  return(p)
-}
-
-# --- Loop over all pairs ---
-output_dir <- file.path(plots_dir, "msmc_pseudodiploids_individual_pairs")
-if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
-
-for (pair_id in unique(msmc_pseudo$pair_id)) {
-  pseudo_pair <- msmc_pseudo %>% filter(pair_id == !!pair_id)
-  save_file <- file.path(output_dir, paste0(pair_id, ".png"))
-  plot_pseudodip_overlay(pseudo_pair, msmc_annotated, mu, mu*0.75, gen, save_file)
-  message("Saved plot for pair: ", pair_id)
-}
-```
-
 
 ```{r}
 ########## attempts to combine everything
@@ -957,187 +607,169 @@ plot_msmc_facet <- function(
   msmc_data,
   mu,
   gen,
+  pseudodip_mu = NULL,          # unchanged
   panel_grouping_var,
-  group_line_var,
   color_var,
-  label_var = NULL,
-  highlight_var = NULL,
-  highlight_values = NULL,
-  autosomal_data = NULL,         # NEW
-  pseudodip_mu = NULL,           # NEW
-  overlay_autosomes = FALSE,     # NEW
-  ncol_panels = 4,
-  xlims = c(1e4, 1e7),
-  ylims = c(1e3, 1e7),
+  group_line_var,
+  line_label = NULL,
+  overlay_autosomes = FALSE,
+  autosomal_data = NULL,
   manual_colors = NULL,
-  use_log_guides = TRUE,
+  xlims = NULL,
+  ylims = NULL,
+  ### REMOVED: highlight_var, highlight_values
+  ncol_panels = 3,
   save_file = NULL
 ) {
 
-  # =============================================================
-  # ========== 1. OPTIONALLY BUILD PSEUDODIP OVERLAY  ============
-  # =============================================================
+  # Only check line_label if not NULL
+  if (!is.null(line_label)) {
+    line_label <- match.arg(line_label, c("sample", "region", "sample + region"))
+  }
 
-  if (overlay_autosomes) {
+  # Ensure pseudodiploid indicator exists
+  if (!"is_pseudodiploid" %in% colnames(msmc_data)) {
+    msmc_data <- msmc_data %>% mutate(is_pseudodiploid = FALSE)
+  }
 
-    if (is.null(autosomal_data) || is.null(pseudodip_mu))
-      stop("Must supply autosomal_data and pseudodip_mu when overlay_autosomes = TRUE")
-
-    # extract pair’s two chromosomes
-    s1 <- unique(msmc_data$sample1)
-    s2 <- unique(msmc_data$sample2)
-
-    # pseudodip line
-    pseudo_line <- msmc_data %>%
-      mutate(
-        time_years = (left_time_boundary / pseudodip_mu) * gen,
-        Ne = (1 / lambda_00) / (2 * pseudodip_mu),
-        type = "pseudodiploid",
-        label = "pseudodiploid"
-      )
-
-    # autosomal lines
-    auto1 <- autosomal_data %>% filter(sample == s1) %>%
-      mutate(
-        time_years = (left_time_boundary / mu) * gen,
-        Ne = (1 / lambda_00) / (2 * mu),
-        type = paste0("autosome_", sample),
-        label = sample
-      )
-
-    auto2 <- autosomal_data %>% filter(sample == s2) %>%
-      mutate(
-        time_years = (left_time_boundary / mu) * gen,
-        Ne = (1 / lambda_00) / (2 * mu),
-        type = paste0("autosome_", sample),
-        label = sample
-      )
-
-    # combine
-    msmc_data <- bind_rows(pseudo_line, auto1, auto2)
-
-    # override grouping + color variables
-    group_line_var <- "type"
-    color_var <- "type"
-    panel_grouping_var <- panel_grouping_var
-
-    # build palette
-    manual_colors <- c(
-      "pseudodiploid" = "red",
-      setNames(
-        RColorBrewer::brewer.pal(8, "Set1")[1:2],
-        c(paste0("autosome_", s1), paste0("autosome_", s2))
-      )
+  ### CHANGED: restored correct MSMC variable name lambda_00
+  df <- msmc_data %>%
+    mutate(
+      time_scaled = (left_time_boundary / mu) * gen,
+      ne_scaled   = (1 / lambda_00) / (2 * mu)
     )
+
+  ### CHANGED: correct pseudodiploid scaling again uses lambda_00
+  if (!is.null(pseudodip_mu)) {
+    df <- df %>%
+      mutate(
+        time_scaled = ifelse(is_pseudodiploid,
+                             (left_time_boundary / pseudodip_mu) * gen,
+                             time_scaled),
+        ne_scaled   = ifelse(is_pseudodiploid,
+                             (1 / lambda_00) / (2 * pseudodip_mu),
+                             ne_scaled)
+      )
   }
 
-  # =============================================================
-  # ========== 2. OPTIONAL FILTERING (HIGHLIGHT)  =================
-  # =============================================================
+  # Overlay autosomal curves
+  if (overlay_autosomes && !is.null(autosomal_data)) {
 
-  if (!is.null(highlight_values) && !overlay_autosomes) {
-    if (is.null(highlight_var))
-      stop("highlight_var must be supplied if highlight_values is used.")
+    ### CHANGED: restored lambda_00 usage
+    autos <- autosomal_data %>%
+      mutate(
+        time_scaled = (left_time_boundary / mu) * gen,
+        ne_scaled   = (1 / lambda_00) / (2 * mu),
+        is_pseudodiploid = FALSE,
+        sample = paste0("autosome_", sample)
+      )
 
-    msmc_data <- msmc_data %>%
-      dplyr::filter(.data[[highlight_var]] %in% highlight_values)
+    df <- bind_rows(df, autos)
 
-    if (nrow(msmc_data) == 0)
-      stop("No rows left after filtering highlight_var/highlight_values.")
+    ### CHANGED: correct override logic retained
+    group_line_var <- "sample"
+    color_var <- "sample"
   }
 
-  # =============================================================
-  # ========== 3. DETERMINE COLOR PALETTE ========================
-  # =============================================================
-
-  if (!is.null(manual_colors)) {
-    palette_vals <- manual_colors
-  } else {
-    groups <- sort(unique(msmc_data[[color_var]]))
-    palette_vals <- setNames(
-      colorRampPalette(RColorBrewer::brewer.pal(8, "Dark2"))(length(groups)),
+  # Determine colors
+  if (is.null(manual_colors)) {
+    groups <- sort(unique(df[[color_var]]))
+    manual_colors <- setNames(
+      colorRampPalette(RColorBrewer::brewer.pal(8, "Set1"))(length(groups)),
       groups
     )
   }
 
-  # =============================================================
-  # ========== 4. OPTIONAL LABEL CALCULATION =====================
-  # =============================================================
+  ### REMOVED: highlight_flag creation
+  ### REMOVED: highlight alpha logic
+  ### REASON: we now simply subset before calling function
 
-  labels_df <- NULL
-  if (!is.null(label_var)) {
-    # if overlay_autosomes, "time_years" already exists
-    if (overlay_autosomes) {
-      labels_df <- msmc_data %>%
-        group_by(type) %>%
-        slice_max(time_years, n = 1) %>%
-        ungroup()
-    } else {
-      labels_df <- msmc_data %>%
-        dplyr::group_by(across(all_of(c(panel_grouping_var, group_line_var)))) %>%
-        slice_min((left_time_boundary / mu) * gen, n = 1) %>%
-        dplyr::ungroup()
-    }
+  # Build plot
+  p <- ggplot(df, aes(
+    x = time_scaled,
+    y = ne_scaled,
+    group = .data[[group_line_var]],
+    color = .data[[color_var]]
+  )) +
+    ### CHANGED: reinstated single-step geom
+    geom_step(size = 1.1) +
+    scale_color_manual(values = manual_colors)
+
+  # Scales (with log ticks restored)
+  if (!is.null(xlims)) {
+    p <- p + scale_x_log10(limits = xlims)
+  } else {
+    p <- p + scale_x_log10()
   }
 
-  # =============================================================
-  # ========== 5. BUILD MAIN PLOT ================================
-  # =============================================================
+  if (!is.null(ylims)) {
+    p <- p + scale_y_log10(limits = ylims)
+  } else {
+    p <- p + scale_y_log10()
+  }
 
-  p <- ggplot(
-    msmc_data,
-    aes(
-      x = if (!overlay_autosomes) (left_time_boundary / mu) * gen else time_years,
-      y = if (!overlay_autosomes) (1 / lambda_00) / (2 * mu) else Ne,
-      group = .data[[group_line_var]],
-      color = .data[[color_var]]
-    )
-  ) +
-    geom_step(alpha = 0.9) +
-    scale_color_manual(values = palette_vals) +
-    scale_x_log10(limits = xlims) +
-    scale_y_log10(limits = ylims)
+  ### NEW: restored log tick marks
+  p <- p + annotation_logticks(sides = "bl")
 
-  # faceting only for non-overlay
-  if (!overlay_autosomes) {
-    p <- p + ggh4x::facet_wrap2(
-      as.formula(paste0("~", panel_grouping_var)),
-      ncol = ncol_panels,
-      scales = "fixed",
-      axes = "all",
-      strip = ggh4x::strip_vanilla()
+  # Facet wrapping
+  p <- p + ggh4x::facet_wrap2(
+    as.formula(paste0("~", panel_grouping_var)),
+    ncol = ncol_panels,
+    scales = "fixed",
+    axes = "all",
+    strip = ggh4x::strip_vanilla()
+  )
+
+  # Line labels (unchanged except highlight logic removed)
+  if (!is.null(line_label)) {
+
+    ### CHANGED: simplified (no highlight condition)
+    df <- df %>%
+      mutate(
+        line_label_value = case_when(
+          is_pseudodiploid ~ "pseudodiploid",
+          line_label == "sample" ~ sample,
+          line_label == "region" ~ region,
+          line_label == "sample + region" ~ paste0(sample, " (", region, ")"),
+          TRUE ~ NA_character_
+        )
+      )
+
+    label_df <- df %>%
+      group_by(.data[[group_line_var]]) %>%
+      slice_max(time_scaled, n = 1, with_ties = FALSE) %>%
+      ungroup()
+
+    p <- p + ggrepel::geom_text_repel(
+      data = label_df,
+      aes(label = line_label_value),
+      size = 3,
+      segment.color = NA,
+      color = "black"
     )
   }
 
+  # Theme — CHANGED: restored clean theme with dual-axis blanking
   p <- p +
     theme_bw(base_size = 12) +
     theme(
-      legend.position = if (overlay_autosomes) "none" else "bottom",
+      legend.position = "bottom",
       strip.text = element_text(size = 12, face = "bold"),
       axis.text.x.top = element_blank(),
       axis.ticks.x.top = element_blank(),
       axis.text.y.right = element_blank(),
       axis.ticks.y.right = element_blank()
-    ) +
-    annotation_logticks(sides = "bl")
+    )
 
-  # optional labels
-  if (!is.null(label_var)) {
-    p <- p +
-      geom_text_repel(
-        data = labels_df,
-        aes(label = .data[[label_var]]),
-        size = 3,
-        segment.color = NA
-      )
-  }
-
+  # Save if requested
   if (!is.null(save_file)) {
     ggsave(save_file, p, width = 12, height = 8, dpi = 300)
   }
 
   return(p)
 }
+
+
 
 
 
@@ -1148,7 +780,6 @@ autosomal_plot <- plot_msmc_facet(
   panel_grouping_var = "continent",
   color_var = "continent",
   group_line_var = "sample",
-  label_var = "region",
   ncol_panels = 2,
   xlims = c(1e4, 1e7),
   ylims = c(1e3, 1e7),
@@ -1156,21 +787,24 @@ autosomal_plot <- plot_msmc_facet(
   save_file = file.path(plots_dir, "msmc_all_samples_facet.png")
 )
 
-highlight_plot <- plot_msmc_facet(
-  msmc_data = msmc_annotated,
+
+highlight_samples <- c("LIS935", "S212760", "S120237", "ORC_S13-2559")
+
+autosomal_highlights_plot <- plot_msmc_facet(
+  msmc_data = msmc_annotated %>% filter(sample %in% highlight_samples),
   mu = mu,
   gen = gen,
   panel_grouping_var = "continent",
   color_var = "continent",
   group_line_var = "sample",
-  label_var = "region",
-  highlight_var = "sample",
-  highlight_values = highlight_samples,
+  line_label = "sample + region",
   ncol_panels = 2,
+  xlims = c(1e4, 1e7),
   ylims = c(1e3, 1e7),
   manual_colors = continent_colors,
   save_file = file.path(plots_dir, "msmc_highlight_samples_facet.png")
 )
+
 
 pseudo_mu <- mu * 0.75
 
@@ -1202,13 +836,18 @@ asia_pseudodip_plot <- plot_msmc_facet(
   xlims = c(1e5, 5e6),
   ylims = c(7e3, 1e9),
   save_file = file.path(plots_dir, "MSMC_pseudodiploids_asia.png")
+)
+```
 
 
+```{r}
 # Correctly create the subdirectory
-pseudodiploids_dir <- file.path(plots_dir, "msmc_pseudodiploids_individual_pairs")
-if (!dir.exists(pseudodiploids_dir)) {
-    dir.create(pseudodiploids_dir, recursive = TRUE)
+pseudodiploids_plots <- file.path(plots_dir, "msmc_pseudodiploids_individual_pairs")
+if (!dir.exists(pseudodiploids_plots)) {
+    dir.create(pseudodiploids_plots, recursive = TRUE)
 }
+
+pseudo_mu =  (mu * 0.75)
 
 # Loop over all pseudodiploid pairs
 for (pair_id in unique(msmc_pseudo$pair_id)) {
@@ -1218,7 +857,7 @@ for (pair_id in unique(msmc_pseudo$pair_id)) {
 
   # Ensure each plot is saved in the correct subdirectory
   save_file <- file.path(
-    pseudodiploids_dir, 
+    pseudodiploids_plots, 
     paste0(pair_id, ".png")
   )
   
@@ -1236,6 +875,7 @@ for (pair_id in unique(msmc_pseudo$pair_id)) {
     xlims = c(1e4, 1e7),
     ylims = c(1e3, 1e8)
   )
+  break
 }
 ```
 
