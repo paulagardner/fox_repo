@@ -607,134 +607,147 @@ plot_msmc_facet <- function(
   msmc_data,
   mu,
   gen,
-  pseudodip_mu = NULL,          # unchanged
   panel_grouping_var,
   color_var,
   group_line_var,
   line_label = NULL,
-  overlay_autosomes = FALSE,
-  autosomal_data = NULL,
+  autosomal_data = NULL,         # optional autosomal overlay
+  pseudodiploid_data = NULL,     # optional pseudodiploid overlay
+  pseudodip_mu = NULL,           # optional separate mu for pseudodiploid
   manual_colors = NULL,
   xlims = NULL,
   ylims = NULL,
-  ### REMOVED: highlight_var, highlight_values
   ncol_panels = 3,
   save_file = NULL
 ) {
 
-  # Only check line_label if not NULL
+  # --- Load required libraries ---
+  library(dplyr)
+  library(ggplot2)
+  library(ggh4x)
+  library(ggrepel)
+
+  # --- Handle line_label argument ---
   if (!is.null(line_label)) {
     line_label <- match.arg(line_label, c("sample", "region", "sample + region"))
   }
 
-  # Ensure pseudodiploid indicator exists
+  # --- Ensure pseudodiploid indicator exists ---
   if (!"is_pseudodiploid" %in% colnames(msmc_data)) {
     msmc_data <- msmc_data %>% mutate(is_pseudodiploid = FALSE)
   }
 
-  ### CHANGED: restored correct MSMC variable name lambda_00
+  # --- Scale autosomal MSMC data ---
   df <- msmc_data %>%
     mutate(
       time_scaled = (left_time_boundary / mu) * gen,
       ne_scaled   = (1 / lambda_00) / (2 * mu)
     )
 
-  ### CHANGED: correct pseudodiploid scaling again uses lambda_00
-  if (!is.null(pseudodip_mu)) {
-    df <- df %>%
-      mutate(
-        time_scaled = ifelse(is_pseudodiploid,
-                             (left_time_boundary / pseudodip_mu) * gen,
-                             time_scaled),
-        ne_scaled   = ifelse(is_pseudodiploid,
-                             (1 / lambda_00) / (2 * pseudodip_mu),
-                             ne_scaled)
-      )
-  }
+  # --- Pseudodiploid + autosomal overlay ---
+  if (!is.null(pseudodiploid_data) && !is.null(pseudodip_mu) && !is.null(autosomal_data)) {
 
-  # Overlay autosomal curves
-  if (overlay_autosomes && !is.null(autosomal_data)) {
+    # Extract the two source individuals
+    ind1 <- pseudodiploid_data$sample1[1]
+    ind2 <- pseudodiploid_data$sample2[1]
 
-    ### CHANGED: restored lambda_00 usage
-    autos <- autosomal_data %>%
+    # --- Autosomal lines ---
+    autosomes_sub <- autosomal_data %>%
+      filter(sample %in% c(ind1, ind2)) %>%
       mutate(
         time_scaled = (left_time_boundary / mu) * gen,
         ne_scaled   = (1 / lambda_00) / (2 * mu),
-        is_pseudodiploid = FALSE,
-        sample = paste0("autosome_", sample)
+        type        = "autosome",
+        is_pseudodiploid = FALSE
       )
 
-    df <- bind_rows(df, autos)
+    # --- Pseudodiploid line ---
+    pseudo_line <- pseudodiploid_data %>%
+      mutate(
+        time_scaled = (left_time_boundary / pseudodip_mu) * gen,
+        ne_scaled   = (1 / lambda_00) / (2 * pseudodip_mu),
+        type        = "pseudodiploid",
+        sample      = "pseudodiploid",  # hardcoded label
+        continent   = "pseudodiploid",  # separate color category
+        is_pseudodiploid = TRUE
+      )
 
-    ### CHANGED: correct override logic retained
-    group_line_var <- "sample"
-    color_var <- "sample"
+    # Combine into one panel
+    df <- bind_rows(autosomes_sub, pseudo_line)
+
+    # Adjust grouping and color for overlay mode
+    group_line_var <- "sample"    # one line per sample + pseudodiploid
+    color_var      <- "continent" # autosomes use continent colors
+    # *** KEY FIX: NO FACETING HERE ***
+      # Force single-panel output for pseudodiploid comparison
+      # -------------------------------
+      panel_grouping_var <- NULL
+      ncol_panels <- 1
+
+      message("Pseudodiploid mode: forcing single-panel plot.")
   }
 
-  # Determine colors
+  # --- Colors ---
   if (is.null(manual_colors)) {
-    groups <- sort(unique(df[[color_var]]))
+    groups <- unique(df[[color_var]])
     manual_colors <- setNames(
       colorRampPalette(RColorBrewer::brewer.pal(8, "Set1"))(length(groups)),
       groups
     )
+    if ("pseudodiploid" %in% df[[color_var]] && !"pseudodiploid" %in% names(manual_colors)) {
+      manual_colors <- c(manual_colors, pseudodiploid = "black")
+    }
   }
 
-  ### REMOVED: highlight_flag creation
-  ### REMOVED: highlight alpha logic
-  ### REASON: we now simply subset before calling function
+  # --- Line labels ---
+  if (!is.null(line_label)) {
+    df <- df %>%
+      mutate(
+        line_label_value = case_when(
+          is_pseudodiploid                       ~ "pseudodiploid",
+          line_label == "sample"                 ~ sample,
+          line_label == "region"                 ~ region,
+          line_label == "sample + region"        ~ paste0(sample, " (", region, ")"),
+          TRUE                                   ~ NA_character_
+        )
+      )
+  }
 
-  # Build plot
+  # --- Base plot ---
   p <- ggplot(df, aes(
     x = time_scaled,
     y = ne_scaled,
     group = .data[[group_line_var]],
     color = .data[[color_var]]
   )) +
-    ### CHANGED: reinstated single-step geom
-    geom_step(size = 1.1) +
-    scale_color_manual(values = manual_colors)
+    geom_step(size = 1.2) +
+    scale_color_manual(values = manual_colors) +
+    scale_x_log10(limits = xlims) +
+    scale_y_log10(limits = ylims) +
+    annotation_logticks(sides = "bl") +
+    theme_bw(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      strip.text      = element_text(size = 12, face = "bold"),
+      axis.text.x.top = element_blank(),
+      axis.ticks.x.top = element_blank(),
+      axis.text.y.right = element_blank(),
+      axis.ticks.y.right = element_blank()
+    )
 
-  # Scales (with log ticks restored)
-  if (!is.null(xlims)) {
-    p <- p + scale_x_log10(limits = xlims)
-  } else {
-    p <- p + scale_x_log10()
+  # --- Facet ---
+  if (!is.null(panel_grouping_var) && panel_grouping_var %in% colnames(df)) {
+    p <- p + ggh4x::facet_wrap2(
+      as.formula(paste0("~", panel_grouping_var)),
+      ncol = ncol_panels,
+      scales = "fixed",
+      axes = "all",
+      strip = ggh4x::strip_vanilla()
+    )
   }
 
-  if (!is.null(ylims)) {
-    p <- p + scale_y_log10(limits = ylims)
-  } else {
-    p <- p + scale_y_log10()
-  }
-
-  ### NEW: restored log tick marks
-  p <- p + annotation_logticks(sides = "bl")
-
-  # Facet wrapping
-  p <- p + ggh4x::facet_wrap2(
-    as.formula(paste0("~", panel_grouping_var)),
-    ncol = ncol_panels,
-    scales = "fixed",
-    axes = "all",
-    strip = ggh4x::strip_vanilla()
-  )
-
-  # Line labels (unchanged except highlight logic removed)
+  # --- Add line labels ---
   if (!is.null(line_label)) {
-
-    ### CHANGED: simplified (no highlight condition)
-    df <- df %>%
-      mutate(
-        line_label_value = case_when(
-          is_pseudodiploid ~ "pseudodiploid",
-          line_label == "sample" ~ sample,
-          line_label == "region" ~ region,
-          line_label == "sample + region" ~ paste0(sample, " (", region, ")"),
-          TRUE ~ NA_character_
-        )
-      )
-
     label_df <- df %>%
       group_by(.data[[group_line_var]]) %>%
       slice_max(time_scaled, n = 1, with_ties = FALSE) %>%
@@ -749,25 +762,14 @@ plot_msmc_facet <- function(
     )
   }
 
-  # Theme — CHANGED: restored clean theme with dual-axis blanking
-  p <- p +
-    theme_bw(base_size = 12) +
-    theme(
-      legend.position = "bottom",
-      strip.text = element_text(size = 12, face = "bold"),
-      axis.text.x.top = element_blank(),
-      axis.ticks.x.top = element_blank(),
-      axis.text.y.right = element_blank(),
-      axis.ticks.y.right = element_blank()
-    )
-
-  # Save if requested
+  # --- Save plot ---
   if (!is.null(save_file)) {
     ggsave(save_file, p, width = 12, height = 8, dpi = 300)
   }
 
   return(p)
 }
+
 
 
 
@@ -847,7 +849,7 @@ if (!dir.exists(pseudodiploids_plots)) {
     dir.create(pseudodiploids_plots, recursive = TRUE)
 }
 
-pseudo_mu =  (mu * 0.75)
+pseudo_mu <- mu * 0.75  # Optional separate mu for pseudodiploid
 
 # Loop over all pseudodiploid pairs
 for (pair_id in unique(msmc_pseudo$pair_id)) {
@@ -855,27 +857,35 @@ for (pair_id in unique(msmc_pseudo$pair_id)) {
   pseudo_pair <- msmc_pseudo %>% 
     filter(pair_id == !!pair_id)
 
+  # Extract source individuals for overlay
+  ind1 <- pseudo_pair$sample1[1]
+  ind2 <- pseudo_pair$sample2[1]
+
+  autosomes_sub <- msmc_annotated %>%
+    filter(sample %in% c(ind1, ind2))
+
   # Ensure each plot is saved in the correct subdirectory
   save_file <- file.path(
     pseudodiploids_plots, 
     paste0(pair_id, ".png")
   )
-  
+
   plot_msmc_facet(
-    msmc_data = pseudo_pair,
+    msmc_data = autosomes_sub,         # autosomal lines
+    autosomal_data = autosomes_sub,    # for overlay
+    pseudodiploid_data = pseudo_pair,  # pseudodiploid overlay
     mu = mu,
     pseudodip_mu = pseudo_mu,
     gen = gen,
-    overlay_autosomes = TRUE,
-    autosomal_data = msmc_annotated,
     panel_grouping_var = "pair_id",
-    group_line_var = "type",    
-    color_var = "type",           
+    group_line_var = "sample",         # function will adjust for overlay
+    color_var = "continent",           # autosomes get continent colors
+    line_label = "sample + region",
     save_file = save_file,
     xlims = c(1e4, 1e7),
     ylims = c(1e3, 1e8)
   )
-  break
+  break 
 }
-```
 
+```
