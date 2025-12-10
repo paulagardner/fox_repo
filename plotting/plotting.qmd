@@ -720,8 +720,18 @@ plot_msmc_facet <- function(
   )) +
     geom_step(size = 1.2) +
     scale_color_manual(values = manual_colors) +
-    scale_x_log10(limits = xlims) +
-    scale_y_log10(limits = ylims) +
+    #scale_x_log10(limits = xlims) +
+    #scale_y_log10(limits = ylims) +
+    scale_x_log10(
+    limits = xlims,
+    breaks = c(1e4, 1e5, 1e6),
+    labels = c("10 kya", "100 kya", "1 Mya")
+    ) +
+    scale_y_log10(
+      limits = ylims,
+      breaks = c(1e3, 1e4, 1e5, 1e6, 1e7),
+      labels = c("1k", "10k", "100k", "1M", "10M")
+    ) +
     annotation_logticks(sides = "bl") +
     theme_bw(base_size = 12) +
     theme(
@@ -752,12 +762,17 @@ plot_msmc_facet <- function(
       ungroup()
 
     p <- p + ggrepel::geom_text_repel(
-      data = label_df,
-      aes(label = line_label_value),
-      size = 3,
-      segment.color = NA,
-      color = "black"
-    )
+    data = label_df,
+    aes(
+      label = line_label_value,
+      color = .data[[color_var]]        # <-- line-label color matches line color
+    ),
+    size = 3,
+    segment.color = NA,
+    show.legend = FALSE                 # optional: keeps legends clean
+  )
+
+
   }
 
   # === Save plot ===
@@ -851,7 +866,7 @@ if (!dir.exists(pseudodiploids_plots)) {
 pairs_to_run <- unique(msmc_pseudo$pair_id)
 
 # Uncomment the next line to only run the first 5 pairs (for testing)
-pairs_to_run <- head(pairs_to_run, 5)
+#pairs_to_run <- head(pairs_to_run, 5)
 
 for (pair_id in pairs_to_run) {
 
@@ -903,7 +918,7 @@ if (!dir.exists(individual_autosome_plots)) {
 samples_to_run <- unique(msmc_annotated$sample)
 
 # Uncomment the next line to only run the first 5 samples (for testing)
-samples_to_run <- head(samples_to_run, 5)
+#samples_to_run <- head(samples_to_run, 5)
 
 for (sample_name in samples_to_run) {
 
