@@ -523,6 +523,396 @@ ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/heterozygosity_plot.png",
 
 ```
 
+```{r}
+### with filtering
+# ----------- File path -----------
+fst_file <- "/gpfs/data/bergstrom/paula/fox_repo/fst_calculation/out.fstdetails.txt"
+
+# ----------- Read and clean FST file -----------
+fst_raw <- read.table(
+  fst_file,
+  header = FALSE,
+  stringsAsFactors = FALSE,
+  fill = TRUE
+)
+
+colnames(fst_raw) <- c(
+  "stat",
+  "pop1",
+  "pop2",
+  "fst",
+  "fstjack",
+  "se",
+  "z",
+  "nsnp"
+)
+
+fst_df <- fst_raw %>%
+  filter(stat == "F_st") %>%
+  mutate(
+    pop1 = stringr::str_remove(pop1, "^0:"),
+    pop2 = stringr::str_remove(pop2, "^0:")
+  )
+
+# ----------- Filter to samples used in heterozygosity plot -----------
+# IMPORTANT: use merged.df (the actual plotted set)
+valid_samples <- merged.df$sample
+
+fst_df <- fst_df %>%
+  filter(pop1 %in% valid_samples,
+         pop2 %in% valid_samples)
+
+# ----------- Build symmetric FST matrix -----------
+all_samples <- sort(unique(c(fst_df$pop1, fst_df$pop2)))
+
+fst_mat <- matrix(
+  NA_real_,
+  nrow = length(all_samples),
+  ncol = length(all_samples),
+  dimnames = list(all_samples, all_samples)
+)
+
+for (i in seq_len(nrow(fst_df))) {
+  s1 <- fst_df$pop1[i]
+  s2 <- fst_df$pop2[i]
+  fst_val <- fst_df$fst[i]
+  
+  fst_mat[s1, s2] <- fst_val
+  fst_mat[s2, s1] <- fst_val
+}
+
+diag(fst_mat) <- 0
+
+# ----------- Order samples by continent_order, then order_df -----------
+sample_order_df <- tibble(sample = rownames(fst_mat)) %>%
+  left_join(metadata %>% select(sample, continent), by = "sample") %>%
+  left_join(
+    order_df %>%
+      select(sample) %>%
+      mutate(admix_order = row_number()),
+    by = "sample"
+  ) %>%
+  mutate(
+    continent = factor(continent, levels = continent_order)
+  ) %>%
+  arrange(continent, admix_order)
+
+ordered_samples <- sample_order_df$sample
+fst_mat_ord <- fst_mat[ordered_samples, ordered_samples]
+
+# ----------- Axis labels: sample (region) -----------
+# Pull region labels from merged.df to stay consistent with heterozygosity plot
+axis_labels <- merged.df %>%
+  distinct(sample, region) %>%
+  mutate(label = paste0(sample, " (", region, ")"))
+
+label_vec <- setNames(axis_labels$label, axis_labels$sample)
+
+# ----------- Convert to long format -----------
+fst_long <- as.data.frame(as.table(fst_mat_ord))
+colnames(fst_long) <- c("sample1", "sample2", "fst")
+
+fst_long <- fst_long %>%
+  filter(sample1 != sample2)
+
+# ----------- Plot -----------
+fst_plot <- ggplot(
+  fst_long,
+  aes(
+    x = factor(sample1, levels = ordered_samples),
+    y = factor(sample2, levels = ordered_samples),
+    fill = fst
+  )
+) +
+  geom_tile(color = "white", linewidth = 0.2) +
+  scale_fill_viridis_c(
+    option = "magma",
+    na.value = "grey90",
+    name = "FST"
+  ) +
+  coord_fixed() +
+  scale_x_discrete(labels = label_vec) +
+  scale_y_discrete(labels = label_vec) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Pairwise FST (samples used in heterozygosity plot)",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
+    axis.text.y = element_text(size = 6),
+    panel.grid = element_blank()
+  )
+
+ggsave(
+  "/gpfs/bio/xrq24scu/fox_repo/plotting/pairwise_fst_heatmap_filtered.png",
+  fst_plot,
+  width = 14,
+  height = 12,
+  dpi = 300
+)
+
+```
+
+
+```{r}
+# ----------- File path -----------
+fst_file <- "/gpfs/data/bergstrom/paula/fox_repo/fst_calculation/out.fstdetails.txt"
+
+# ----------- Read and clean FST file -----------
+fst_raw <- read.table(
+  fst_file,
+  header = FALSE,
+  stringsAsFactors = FALSE,
+  fill = TRUE
+)
+
+colnames(fst_raw) <- c(
+  "stat",
+  "pop1",
+  "pop2",
+  "fst",
+  "fstjack",
+  "se",
+  "z",
+  "nsnp"
+)
+
+fst_df <- fst_raw %>%
+  filter(stat == "F_st") %>%
+  mutate(
+    pop1 = stringr::str_remove(pop1, "^0:"),
+    pop2 = stringr::str_remove(pop2, "^0:")
+  )
+
+# ----------- Filter to samples used in heterozygosity plot -----------
+valid_samples <- filtered_cov_het$sample
+
+fst_df <- fst_df %>%
+  filter(pop1 %in% valid_samples,
+         pop2 %in% valid_samples)
+
+# ----------- Build symmetric FST matrix -----------
+all_samples <- sort(unique(c(fst_df$pop1, fst_df$pop2)))
+
+fst_mat <- matrix(
+  NA_real_,
+  nrow = length(all_samples),
+  ncol = length(all_samples),
+  dimnames = list(all_samples, all_samples)
+)
+
+for (i in seq_len(nrow(fst_df))) {
+  s1 <- fst_df$pop1[i]
+  s2 <- fst_df$pop2[i]
+  fst_val <- fst_df$fst[i]
+  
+  fst_mat[s1, s2] <- fst_val
+  fst_mat[s2, s1] <- fst_val
+}
+
+diag(fst_mat) <- 0
+
+# ----------- Order samples by continent_order, then order_df -----------
+sample_order_df <- tibble(sample = rownames(fst_mat)) %>%
+  left_join(metadata %>% select(sample, continent), by = "sample") %>%
+  left_join(
+    order_df %>% 
+      select(sample) %>% 
+      mutate(admix_order = row_number()),
+    by = "sample"
+  ) %>%
+  mutate(
+    continent = factor(continent, levels = continent_order)
+  ) %>%
+  arrange(continent, admix_order)
+
+ordered_samples <- sample_order_df$sample
+fst_mat_ord <- fst_mat[ordered_samples, ordered_samples]
+
+# ----------- Axis labels: sample (continent) -----------
+axis_labels <- sample_order_df %>%
+  mutate(label = paste0(sample, " (", continent, ")")) %>%
+  select(sample, label)
+
+label_vec <- setNames(axis_labels$label, axis_labels$sample)
+
+# ----------- Convert to long format -----------
+fst_long <- as.data.frame(as.table(fst_mat_ord))
+colnames(fst_long) <- c("sample1", "sample2", "fst")
+
+fst_long <- fst_long %>%
+  filter(sample1 != sample2) %>%
+  mutate(
+    x_lab = label_vec[sample1],
+    y_lab = label_vec[sample2]
+  )
+
+# ----------- Plot -----------
+fst_plot <- ggplot(
+  fst_long,
+  aes(
+    x = factor(sample1, levels = ordered_samples),
+    y = factor(sample2, levels = ordered_samples),
+    fill = fst
+  )
+) +
+  geom_tile(color = "white", linewidth = 0.2) +
+  scale_fill_viridis_c(
+    option = "magma",
+    na.value = "grey90",
+    name = "FST"
+  ) +
+  coord_fixed() +
+  scale_x_discrete(labels = label_vec) +
+  scale_y_discrete(labels = label_vec) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Pairwise FST (filtered to heterozygosity samples)",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
+    axis.text.y = element_text(size = 6),
+    panel.grid = element_blank()
+  )
+
+ggsave(
+  "/gpfs/bio/xrq24scu/fox_repo/plotting/pairwise_fst_heatmap_filtered.png",
+  fst_plot,
+  width = 14,
+  height = 12,
+  dpi = 300
+)
+
+
+```
+
+
+
+```{r}
+##############SECOND ATTEMPT: FST 
+
+# ----------- File path -----------
+
+fst_file <- "/gpfs/data/bergstrom/paula/fox_repo/fst_calculation/out.fstdetails.txt"
+# ----------- Read and clean FST file -----------
+fst_raw <- read.table(
+  fst_file,
+  header = FALSE,
+  stringsAsFactors = FALSE,
+  fill = TRUE
+)
+
+colnames(fst_raw) <- c(
+  "stat",
+  "pop1",
+  "pop2",
+  "fst",
+  "fstjack",
+  "se",
+  "z",
+  "nsnp"
+)
+
+fst_df <- fst_raw %>%
+  filter(stat == "F_st") %>%
+  mutate(
+    pop1 = stringr::str_remove(pop1, "^0:"),
+    pop2 = stringr::str_remove(pop2, "^0:")
+  )
+
+# ----------- Build symmetric FST matrix -----------
+all_samples <- sort(unique(c(fst_df$pop1, fst_df$pop2)))
+
+fst_mat <- matrix(
+  NA_real_,
+  nrow = length(all_samples),
+  ncol = length(all_samples),
+  dimnames = list(all_samples, all_samples)
+)
+
+for (i in seq_len(nrow(fst_df))) {
+  s1 <- fst_df$pop1[i]
+  s2 <- fst_df$pop2[i]
+  fst_val <- fst_df$fst[i]
+  
+  fst_mat[s1, s2] <- fst_val
+  fst_mat[s2, s1] <- fst_val
+}
+
+diag(fst_mat) <- 0
+
+# ----------- Order samples by continent_order, then order_df -----------
+# Join continent info
+sample_order_df <- tibble(sample = rownames(fst_mat)) %>%
+  left_join(metadata %>% select(sample, continent), by = "sample") %>%
+  mutate(
+    continent = factor(continent, levels = continent_order)
+  ) %>%
+  left_join(
+    order_df %>% mutate(admix_order = row_number()),
+    by = "sample"
+  )
+
+# Final ordering:
+#   1) continent_order
+#   2) ADMIXTURE order within continent
+sample_order_df <- sample_order_df %>%
+  arrange(continent, admix_order)
+
+ordered_samples <- sample_order_df$sample
+
+fst_mat_ord <- fst_mat[ordered_samples, ordered_samples]
+
+# ----------- Convert to long format for ggplot -----------
+fst_long <- as.data.frame(as.table(fst_mat_ord))
+colnames(fst_long) <- c("sample1", "sample2", "fst")
+
+# Remove diagonal (optional)
+fst_long <- fst_long %>% filter(sample1 != sample2)
+
+# ----------- Pairwise FST heatmap -----------
+fst_plot <- ggplot(
+  fst_long,
+  aes(
+    x = factor(sample1, levels = ordered_samples),
+    y = factor(sample2, levels = ordered_samples),
+    fill = fst
+  )
+) +
+  geom_tile(color = "white", linewidth = 0.2) +
+  scale_fill_viridis_c(
+    option = "magma",
+    na.value = "grey90",
+    name = "FST"
+  ) +
+  coord_fixed() +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Pairwise FST between samples",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
+    axis.text.y = element_text(size = 6),
+    panel.grid = element_blank()
+  )
+
+ggsave(
+  "/gpfs/bio/xrq24scu/fox_repo/plotting/pairwise_fst_heatmap.png",
+  fst_plot,
+  width = 12,
+  height = 10,
+  dpi = 300
+)
+
+```
+
+
 
 ```{r}
 ########## attempts to combine everything
@@ -714,7 +1104,7 @@ plot_msmc_facet <- function(
   # === Base plot ===
   p <- ggplot(df, aes(
     x = time_scaled,
-    y = ne_scaled,
+    y = Ne scaled,
     group = .data[[group_line_var]],
     color = .data[[color_var]]
   )) +
@@ -729,14 +1119,14 @@ plot_msmc_facet <- function(
     ) +
     scale_y_log10(
       limits = ylims,
-      breaks = c(1e3, 1e4, 1e5, 1e6, 1e7),
-      labels = c("1k", "10k", "100k", "1M", "10M")
     ) +
     annotation_logticks(sides = "bl") +
-    theme_bw(base_size = 12) +
+    theme_bw(base_size = 18) +
     theme(
       legend.position = "bottom",
       strip.text      = element_text(size = 12, face = "bold"),
+      axis.text.x     = element_text(size = 18, face = "bold"),
+      axis.text.y     = element_text(size = 18, face = "bold"),
       axis.text.x.top = element_blank(),
       axis.ticks.x.top = element_blank(),
       axis.text.y.right = element_blank(),
@@ -756,28 +1146,57 @@ plot_msmc_facet <- function(
 
   # === Add line labels ===
   if (!is.null(line_label)) {
+    # label_df <- df %>%
+    #   #filter(!is_pseudodiploid) %>%   # <-- TEMPORARILY REMOVE THE PSEUDODIPLOID LABEL FOR THE CONFERENCE
+    #   group_by(.data[[group_line_var]]) %>%
+    #   slice_max(time_scaled, n = 1, with_ties = FALSE) %>%
+    #   ungroup()
+
+    # p <- p + ggrepel::geom_text_repel(
+    # data = label_df,
+    # aes(
+    #   label = line_label_value,
+    #   color = .data[[color_var]]        # <-- line-label color matches line color
+    # ),
+    # size = 5,
+    # segment.color = NA,
+    # show.legend = FALSE                 # optional: keeps legends clean
+    # )
     label_df <- df %>%
-      group_by(.data[[group_line_var]]) %>%
-      slice_max(time_scaled, n = 1, with_ties = FALSE) %>%
-      ungroup()
+          filter(!is_pseudodiploid) %>%   # <-- TEMPORARILY REMOVE THE PSEUDODIPLOID LABEL FOR THE CONFERENCE
+          group_by(.data[[group_line_var]]) %>%
+          slice_max(time_scaled, n = 1, with_ties = FALSE) %>%
+          ungroup() %>%
+          mutate( # Push labels slightly to the right so segments are visible 
+          label_x = time_scaled * .85, label_y = Ne_scaled )
 
-    p <- p + ggrepel::geom_text_repel(
-    data = label_df,
-    aes(
-      label = line_label_value,
-      color = .data[[color_var]]        # <-- line-label color matches line color
-    ),
-    size = 3,
-    segment.color = NA,
-    show.legend = FALSE                 # optional: keeps legends clean
-  )
 
+        p <- p + ggrepel::geom_text_repel(
+          data = label_df,
+          aes(
+            x = label_x,
+            y = label_y,
+            label = line_label_value,
+            color = .data[[color_var]]
+          ),
+          size = 5,
+          direction = "both",         
+          force = 10,
+          force_pull = 0.6,
+          max.overlaps = Inf,
+          box.padding = 1.5,
+          point.padding = 0.2,
+          segment.color = "grey60", # leader lines
+          segment.size = 1,
+          segment.alpha = 0.4,
+          show.legend = FALSE
+        )
 
   }
 
   # === Save plot ===
   if (!is.null(save_file)) {
-    ggsave(save_file, p, width = 12, height = 8, dpi = 300)
+    ggsave(save_file, p, width = 10, height = 8, dpi = 300)
   }
 
   return(p)
@@ -856,37 +1275,46 @@ asia_pseudodip_plot <- plot_msmc_facet(
 )
 ```
 
-
 ```{r}
-pseudodiploids_plots <- file.path(plots_dir, "msmc_pseudodiploids_individual_pairs")
-if (!dir.exists(pseudodiploids_plots)) {
-    dir.create(pseudodiploids_plots, recursive = TRUE)
-}
-# All unique pair IDs
-pairs_to_run <- unique(msmc_pseudo$pair_id)
 
-# Uncomment the next line to only run the first 5 pairs (for testing)
-#pairs_to_run <- head(pairs_to_run, 5)
+pseudodiploids_plots <- file.path(
+  plots_dir,
+  "msmc_pseudodiploids_individual_pairs"
+)
+
+if (!dir.exists(pseudodiploids_plots)) {
+  dir.create(pseudodiploids_plots, recursive = TRUE)
+}
+
+if (!dir.exists(pseudodiploids_plots)) {
+  dir.create(pseudodiploids_plots, recursive = TRUE)
+}
+
+pairs_to_run <- unique(msmc_pseudo$pair_id)
+pairs_to_run <- unique(msmc_pseudo$pair_id)[1:3]
+
 
 for (pair_id in pairs_to_run) {
 
   pseudo_pair <- msmc_pseudo %>% 
     filter(pair_id == !!pair_id)
 
-  # Extract source individuals
   ind1 <- pseudo_pair$sample1[1]
   ind2 <- pseudo_pair$sample2[1]
+
+  # NEW: extract regions for naming
+  reg1 <- pseudo_pair$region1[1]
+  reg2 <- pseudo_pair$region2[1]
 
   autosomes_sub <- msmc_annotated %>%
     filter(sample %in% c(ind1, ind2))
 
-  # Save file path
+  # UPDATED: save file using region names. can do with sample names instead
   save_file <- file.path(
-    pseudodiploids_plots, 
-    paste0(pair_id, ".png")
+    pseudodiploids_plots,
+    paste0(reg1, "_", reg2, ".png")
   )
 
-  # Plot
   plot_msmc_facet(
     msmc_data = autosomes_sub,
     autosomal_data = autosomes_sub,
@@ -904,8 +1332,9 @@ for (pair_id in pairs_to_run) {
   )
 }
 
-
 ```
+
+
 
 ```{r}
 # Directory for individual autosomal plots
