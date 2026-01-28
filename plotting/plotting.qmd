@@ -655,264 +655,47 @@ ggsave(
 
 ```
 
+```{r} 
+#troubleshooting vertical lines
+# Absolute threshold for spike detection
+abs_threshold <- 0.10
+rel_threshold <- 0.10
 
-```{r}
-# ----------- File path -----------
-fst_file <- "/gpfs/data/bergstrom/paula/fox_repo/fst_calculation/out.fstdetails.txt"
+spike_df <- msmc_annotated %>%
+  group_by(sample) %>%
+  group_modify(~ {
+    raw_df <- .x %>% arrange(left_time_boundary)
+    spike_time <- call_msmc_spike(
+      df = raw_df,
+      abs_threshold = abs_threshold,
+      rel_threshold = rel_threshold
+    )
 
-# ----------- Read and clean FST file -----------
-fst_raw <- read.table(
-  fst_file,
-  header = FALSE,
-  stringsAsFactors = FALSE,
-  fill = TRUE
-)
+    if (is.na(spike_time)) return(tibble())  # no spike found
 
-colnames(fst_raw) <- c(
-  "stat",
-  "pop1",
-  "pop2",
-  "fst",
-  "fstjack",
-  "se",
-  "z",
-  "nsnp"
-)
-
-fst_df <- fst_raw %>%
-  filter(stat == "F_st") %>%
-  mutate(
-    pop1 = stringr::str_remove(pop1, "^0:"),
-    pop2 = stringr::str_remove(pop2, "^0:")
-  )
-
-# ----------- Filter to samples used in heterozygosity plot -----------
-valid_samples <- filtered_cov_het$sample
-
-fst_df <- fst_df %>%
-  filter(pop1 %in% valid_samples,
-         pop2 %in% valid_samples)
-
-# ----------- Build symmetric FST matrix -----------
-all_samples <- sort(unique(c(fst_df$pop1, fst_df$pop2)))
-
-fst_mat <- matrix(
-  NA_real_,
-  nrow = length(all_samples),
-  ncol = length(all_samples),
-  dimnames = list(all_samples, all_samples)
-)
-
-for (i in seq_len(nrow(fst_df))) {
-  s1 <- fst_df$pop1[i]
-  s2 <- fst_df$pop2[i]
-  fst_val <- fst_df$fst[i]
-  
-  fst_mat[s1, s2] <- fst_val
-  fst_mat[s2, s1] <- fst_val
-}
-
-diag(fst_mat) <- 0
-
-# ----------- Order samples by continent_order, then order_df -----------
-sample_order_df <- tibble(sample = rownames(fst_mat)) %>%
-  left_join(metadata %>% select(sample, continent), by = "sample") %>%
+    tibble(
+      spike_time_scaled = (spike_time / mu) * gen
+    )
+  }) %>%
+  ungroup() %>%
   left_join(
-    order_df %>% 
-      select(sample) %>% 
-      mutate(admix_order = row_number()),
+    msmc_annotated %>% select(sample, continent) %>% distinct(),
     by = "sample"
-  ) %>%
-  mutate(
-    continent = factor(continent, levels = continent_order)
-  ) %>%
-  arrange(continent, admix_order)
-
-ordered_samples <- sample_order_df$sample
-fst_mat_ord <- fst_mat[ordered_samples, ordered_samples]
-
-# ----------- Axis labels: sample (continent) -----------
-axis_labels <- sample_order_df %>%
-  mutate(label = paste0(sample, " (", continent, ")")) %>%
-  select(sample, label)
-
-label_vec <- setNames(axis_labels$label, axis_labels$sample)
-
-# ----------- Convert to long format -----------
-fst_long <- as.data.frame(as.table(fst_mat_ord))
-colnames(fst_long) <- c("sample1", "sample2", "fst")
-
-fst_long <- fst_long %>%
-  filter(sample1 != sample2) %>%
-  mutate(
-    x_lab = label_vec[sample1],
-    y_lab = label_vec[sample2]
   )
-
-# ----------- Plot -----------
-fst_plot <- ggplot(
-  fst_long,
-  aes(
-    x = factor(sample1, levels = ordered_samples),
-    y = factor(sample2, levels = ordered_samples),
-    fill = fst
-  )
-) +
-  geom_tile(color = "white", linewidth = 0.2) +
-  scale_fill_viridis_c(
-    option = "magma",
-    na.value = "grey90",
-    name = "FST"
-  ) +
-  coord_fixed() +
-  scale_x_discrete(labels = label_vec) +
-  scale_y_discrete(labels = label_vec) +
-  theme_minimal(base_size = 14) +
-  labs(
-    title = "Pairwise FST (filtered to heterozygosity samples)",
-    x = NULL,
-    y = NULL
-  ) +
-  theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
-    axis.text.y = element_text(size = 6),
-    panel.grid = element_blank()
-  )
-
-ggsave(
-  "/gpfs/bio/xrq24scu/fox_repo/plotting/pairwise_fst_heatmap_filtered.png",
-  fst_plot,
-  width = 14,
-  height = 12,
-  dpi = 300
-)
 
 
 ```
 
 
-
 ```{r}
-##############SECOND ATTEMPT: FST 
+#average FST 
+# to code: 
+# -color-code by what the pairs are from (eg, within europe, europe-asia)
+#then plot these WITH their jackknife estimates 
 
-# ----------- File path -----------
 
-fst_file <- "/gpfs/data/bergstrom/paula/fox_repo/fst_calculation/out.fstdetails.txt"
-# ----------- Read and clean FST file -----------
-fst_raw <- read.table(
-  fst_file,
-  header = FALSE,
-  stringsAsFactors = FALSE,
-  fill = TRUE
-)
-
-colnames(fst_raw) <- c(
-  "stat",
-  "pop1",
-  "pop2",
-  "fst",
-  "fstjack",
-  "se",
-  "z",
-  "nsnp"
-)
-
-fst_df <- fst_raw %>%
-  filter(stat == "F_st") %>%
-  mutate(
-    pop1 = stringr::str_remove(pop1, "^0:"),
-    pop2 = stringr::str_remove(pop2, "^0:")
-  )
-
-# ----------- Build symmetric FST matrix -----------
-all_samples <- sort(unique(c(fst_df$pop1, fst_df$pop2)))
-
-fst_mat <- matrix(
-  NA_real_,
-  nrow = length(all_samples),
-  ncol = length(all_samples),
-  dimnames = list(all_samples, all_samples)
-)
-
-for (i in seq_len(nrow(fst_df))) {
-  s1 <- fst_df$pop1[i]
-  s2 <- fst_df$pop2[i]
-  fst_val <- fst_df$fst[i]
-  
-  fst_mat[s1, s2] <- fst_val
-  fst_mat[s2, s1] <- fst_val
-}
-
-diag(fst_mat) <- 0
-
-# ----------- Order samples by continent_order, then order_df -----------
-# Join continent info
-sample_order_df <- tibble(sample = rownames(fst_mat)) %>%
-  left_join(metadata %>% select(sample, continent), by = "sample") %>%
-  mutate(
-    continent = factor(continent, levels = continent_order)
-  ) %>%
-  left_join(
-    order_df %>% mutate(admix_order = row_number()),
-    by = "sample"
-  )
-
-# Final ordering:
-#   1) continent_order
-#   2) ADMIXTURE order within continent
-sample_order_df <- sample_order_df %>%
-  arrange(continent, admix_order)
-
-ordered_samples <- sample_order_df$sample
-
-fst_mat_ord <- fst_mat[ordered_samples, ordered_samples]
-
-# ----------- Convert to long format for ggplot -----------
-fst_long <- as.data.frame(as.table(fst_mat_ord))
-colnames(fst_long) <- c("sample1", "sample2", "fst")
-
-# Remove diagonal (optional)
-fst_long <- fst_long %>% filter(sample1 != sample2)
-
-# ----------- Pairwise FST heatmap -----------
-fst_plot <- ggplot(
-  fst_long,
-  aes(
-    x = factor(sample1, levels = ordered_samples),
-    y = factor(sample2, levels = ordered_samples),
-    fill = fst
-  )
-) +
-  geom_tile(color = "white", linewidth = 0.2) +
-  scale_fill_viridis_c(
-    option = "magma",
-    na.value = "grey90",
-    name = "FST"
-  ) +
-  coord_fixed() +
-  theme_minimal(base_size = 14) +
-  labs(
-    title = "Pairwise FST between samples",
-    x = NULL,
-    y = NULL
-  ) +
-  theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
-    axis.text.y = element_text(size = 6),
-    panel.grid = element_blank()
-  )
-
-ggsave(
-  "/gpfs/bio/xrq24scu/fox_repo/plotting/pairwise_fst_heatmap.png",
-  fst_plot,
-  width = 12,
-  height = 10,
-  dpi = 300
-)
 
 ```
-
-
 
 ```{r}
 ########## attempts to combine everything
@@ -1009,7 +792,7 @@ plot_msmc_facet <- function(
   ylims = NULL,
   ncol_panels = 3,
   save_file = NULL
-) {
+  ) {
 
   library(dplyr)
   library(ggplot2)
@@ -1104,7 +887,7 @@ plot_msmc_facet <- function(
   # === Base plot ===
   p <- ggplot(df, aes(
     x = time_scaled,
-    y = Ne scaled,
+    y = ne_scaled,
     group = .data[[group_line_var]],
     color = .data[[color_var]]
   )) +
@@ -1119,14 +902,14 @@ plot_msmc_facet <- function(
     ) +
     scale_y_log10(
       limits = ylims,
+      breaks = c(1e3, 1e4, 1e5, 1e6, 1e7),
+      labels = c("1k", "10k", "100k", "1M", "10M")
     ) +
     annotation_logticks(sides = "bl") +
-    theme_bw(base_size = 18) +
+    theme_bw(base_size = 12) +
     theme(
       legend.position = "bottom",
       strip.text      = element_text(size = 12, face = "bold"),
-      axis.text.x     = element_text(size = 18, face = "bold"),
-      axis.text.y     = element_text(size = 18, face = "bold"),
       axis.text.x.top = element_blank(),
       axis.ticks.x.top = element_blank(),
       axis.text.y.right = element_blank(),
@@ -1146,57 +929,28 @@ plot_msmc_facet <- function(
 
   # === Add line labels ===
   if (!is.null(line_label)) {
-    # label_df <- df %>%
-    #   #filter(!is_pseudodiploid) %>%   # <-- TEMPORARILY REMOVE THE PSEUDODIPLOID LABEL FOR THE CONFERENCE
-    #   group_by(.data[[group_line_var]]) %>%
-    #   slice_max(time_scaled, n = 1, with_ties = FALSE) %>%
-    #   ungroup()
-
-    # p <- p + ggrepel::geom_text_repel(
-    # data = label_df,
-    # aes(
-    #   label = line_label_value,
-    #   color = .data[[color_var]]        # <-- line-label color matches line color
-    # ),
-    # size = 5,
-    # segment.color = NA,
-    # show.legend = FALSE                 # optional: keeps legends clean
-    # )
     label_df <- df %>%
-          filter(!is_pseudodiploid) %>%   # <-- TEMPORARILY REMOVE THE PSEUDODIPLOID LABEL FOR THE CONFERENCE
-          group_by(.data[[group_line_var]]) %>%
-          slice_max(time_scaled, n = 1, with_ties = FALSE) %>%
-          ungroup() %>%
-          mutate( # Push labels slightly to the right so segments are visible 
-          label_x = time_scaled * .85, label_y = Ne_scaled )
+      group_by(.data[[group_line_var]]) %>%
+      slice_max(time_scaled, n = 1, with_ties = FALSE) %>%
+      ungroup()
 
-
-        p <- p + ggrepel::geom_text_repel(
-          data = label_df,
-          aes(
-            x = label_x,
-            y = label_y,
-            label = line_label_value,
-            color = .data[[color_var]]
-          ),
-          size = 5,
-          direction = "both",         
-          force = 10,
-          force_pull = 0.6,
-          max.overlaps = Inf,
-          box.padding = 1.5,
-          point.padding = 0.2,
-          segment.color = "grey60", # leader lines
-          segment.size = 1,
-          segment.alpha = 0.4,
-          show.legend = FALSE
-        )
-
+    p <- p + ggrepel::geom_text_repel(
+    data = label_df,
+    aes(
+      label = line_label_value,
+      color = .data[[color_var]]        # <-- line-label color matches line color
+    ),
+    size = 3,
+    segment.color = NA,
+    show.legend = FALSE                 # optional: keeps legends clean
+  )
   }
 
-  # === Save plot ===
+
+
+  # ---- Save ----
   if (!is.null(save_file)) {
-    ggsave(save_file, p, width = 10, height = 8, dpi = 300)
+    ggsave(save_file, p, width = 12, height = 8, dpi = 300)
   }
 
   return(p)
@@ -1222,6 +976,7 @@ autosomal_plot <- plot_msmc_facet(
   manual_colors = continent_colors,
   save_file = file.path(plots_dir, "msmc_all_samples_facet.png")
 )
+
 
 
 highlight_samples <- c("LIS935", "S212760", "S120237", "ORC_S13-2559")
@@ -1277,6 +1032,233 @@ asia_pseudodip_plot <- plot_msmc_facet(
 
 ```{r}
 
+
+
+pair_id_val <- unique(msmc_pseudo$pair_id)[1]
+
+pseudo_pair <- msmc_pseudo %>%
+  filter(pair_id == pair_id_val)
+
+ind1 <- pseudo_pair$sample1[1]
+ind2 <- pseudo_pair$sample2[1]
+
+reg1 <- pseudo_pair$region1[1]
+reg2 <- pseudo_pair$region2[1]
+
+autosomes_sub <- msmc_annotated %>%
+  filter(sample %in% c(ind1, ind2))
+
+p <- plot_msmc_facet(
+  msmc_data = autosomes_sub,
+  autosomal_data = autosomes_sub,
+  pseudodiploid_data = pseudo_pair,
+  mu = mu,
+  pseudodip_mu = pseudo_mu,
+  gen = gen,
+  panel_grouping_var = "pair_id",
+  group_line_var = "sample",
+  color_var = "continent",
+  line_label = "sample + region",
+  save_file = NULL,
+  xlims = c(3e4, 5e6),
+  ylims = c(1e3, 1e12),
+)
+
+detect_msmc_spike <- function(psmc, mu, gen, segment = 25) {
+
+  df <- psmc %>%
+    arrange(left_time_boundary) %>%
+    mutate(
+      time_scaled = (left_time_boundary / mu) * gen
+    )
+
+  if (nrow(df) < segment) {
+    return(NA_real_)
+  }
+
+  return(df$time_scaled[segment])
+}
+
+
+
+spike_value <- detect_msmc_spike(
+  psmc     = pseudo_pair,
+  mu       = pseudo_mu,
+  gen      = gen,
+)
+
+spike_value
+# numeric time in years (already scaled)
+
+p_spike <- p +
+  geom_vline(
+    xintercept = spike_value,
+    linetype   = "longdash",
+    linewidth  = 1,
+    colour     = "darkred"
+  )
+
+ggsave(
+  filename = file.path(plots_dir, "msmc_pseudo_lines_test.png"),
+  plot     = p_spike,
+  width    = 10,
+  height   = 7,
+  dpi      = 300
+)
+
+
+```
+
+
+```{r}
+
+
+######### EDIT
+
+pair_id_val <- unique(msmc_pseudo$pair_id)[1]
+
+pseudo_pair <- msmc_pseudo %>%
+  filter(pair_id == pair_id_val)
+
+ind1 <- pseudo_pair$sample1[1]
+ind2 <- pseudo_pair$sample2[1]
+
+reg1 <- pseudo_pair$region1[1]
+reg2 <- pseudo_pair$region2[1]
+
+autosomes_sub <- msmc_annotated %>%
+  filter(sample %in% c(ind1, ind2))
+
+p <- plot_msmc_facet(
+  msmc_data = autosomes_sub,
+  autosomal_data = autosomes_sub,
+  pseudodiploid_data = pseudo_pair,
+  mu = mu,
+  pseudodip_mu = pseudo_mu,
+  gen = gen,
+  panel_grouping_var = "pair_id",
+  group_line_var = "sample",
+  color_var = "continent",
+  line_label = "sample + region",
+  save_file = NULL,
+  xlims = c(1e4, 5e6),
+  ylims = c(1e3, 1e12)
+)
+
+detect_msmc_spike <- function(msmc, mu, gen,
+                              callSpikeThreshold = 0.10,
+                              min_time = 2e4,
+                              debug = FALSE) {
+
+  msmc <- msmc %>%
+    arrange(left_time_boundary) %>%
+    mutate(time_scaled = (left_time_boundary / mu) * gen)
+
+  # Only bins after min_time
+  valid_idx <- which(msmc$time_scaled >= min_time)
+  if (length(valid_idx) < 3) return(NA_real_)
+
+  if (debug) {
+    message("First bins after min_time:")
+    print(msmc[valid_idx[1]:min(valid_idx[1]+20, max(valid_idx)), 
+               c("left_time_boundary", "right_time_boundary", "lambda_00", "time_scaled")])
+  }
+
+  # -----------------------------
+  # Step: Find the first local maximum after min_time
+  # -----------------------------
+  for (k in valid_idx[-c(1, length(valid_idx))]) {
+    # k moves LEFT → RIGHT through time bins (from more recent to older times)
+    # valid_idx ensures we only consider bins beyond min_time
+    # -c(1, length(valid_idx)) prevents out-of-bounds checks for neighbors
+
+    # Local maximum condition:
+    #   - The current bin is higher than the previous (closer to present)
+    #   - AND higher than the next bin (further back in time)
+    if (msmc$lambda_00[k] > msmc$lambda_00[k-1] &&
+        msmc$lambda_00[k] > msmc$lambda_00[k+1]) {
+
+      # -----------------------------
+      # Step: Mark the detected peak
+      # -----------------------------
+      peak_lambda <- msmc$lambda_00[k]  # lambda at the local maximum
+      if (debug) message(
+        "Detected peak at ~", 
+        round(msmc$time_scaled[k]), 
+        " yrs (λ = ", round(peak_lambda), ")"
+      )
+      # At this point, we've found where the Ne starts to rise relative to neighbors
+
+      # -----------------------------
+      # Step: Backtrack to find ≥10% drop
+      # -----------------------------
+      # We go backwards (right → left in the vector, which is older → more recent)
+      # Only consider bins that come BEFORE the peak (valid_idx < k)
+      back_idx <- rev(valid_idx[valid_idx < k])
+
+      # Find the first bin where lambda_00 is at least 10% smaller than the peak
+      # i.e., lambda <= peak / (1 + callSpikeThreshold)
+      j <- back_idx[which(msmc$lambda_00[back_idx] <= peak_lambda / (1 + callSpikeThreshold))[1]]
+
+      if (!is.na(j)) {
+        # Convert the bin’s right edge into years
+        # RIGHT_EDGE is used because MSMC step functions are constant within a bin
+        spike <- (msmc$right_time_boundary[j] / mu) * gen
+        message("Inferred spike at (years): ", round(spike))
+        return(spike)  # stop at the first qualifying backtrack point
+      }
+
+      # -----------------------------
+      # Fallback: no qualifying drop found
+      # -----------------------------
+      # If none of the earlier bins are low enough, just use the peak itself
+      spike <- (msmc$left_time_boundary[k] / mu) * gen
+      message("Inferred spike at peak (no backtrack): ", round(spike))
+      return(spike)
+    }
+  }
+                              }
+
+
+
+
+
+spike_value <- detect_msmc_spike(
+  msmc = pseudo_pair,
+  mu = pseudo_mu,
+  gen = gen,
+  callSpikeThreshold = 0.10,
+  debug = TRUE
+)
+
+# Add vertical line in ggplot
+p_spike <- p + geom_vline(
+    xintercept = spike_value,
+    linetype = "longdash",
+    linewidth = 1,
+    colour = "darkred"
+  )
+
+
+
+spike_value
+# numeric time in years (already scaled)
+
+
+ggsave(
+  filename = file.path(plots_dir, "msmc_spike_test.png"),
+  plot     = p_spike,
+  width    = 10,
+  height   = 7,
+  dpi      = 300
+)
+
+
+```
+
+
+```{r}
+
 pseudodiploids_plots <- file.path(
   plots_dir,
   "msmc_pseudodiploids_individual_pairs"
@@ -1315,6 +1297,7 @@ for (pair_id in pairs_to_run) {
     paste0(reg1, "_", reg2, ".png")
   )
 
+
   plot_msmc_facet(
     msmc_data = autosomes_sub,
     autosomal_data = autosomes_sub,
@@ -1330,9 +1313,55 @@ for (pair_id in pairs_to_run) {
     xlims = c(3e4, 5e6),
     ylims = c(1e3, 1e12)
   )
+    # 1️⃣ Build base plot (DO NOT save yet)
+  p <- plot_msmc_facet(
+    msmc_data = autosomes_sub,
+    autosomal_data = autosomes_sub,
+    pseudodiploid_data = pseudo_pair,
+    mu = mu,
+    pseudodip_mu = pseudo_mu,
+    gen = gen,
+    panel_grouping_var = "pair_id",
+    group_line_var = "sample",
+    color_var = "continent",
+    line_label = "sample + region",
+    save_file = NULL,          # important
+    xlims = c(3e4, 5e6),
+    ylims = c(1e3, 1e12)
+  )
+
+  # 2️⃣ Detect spike for THIS pseudodiploid
+  spike_value <- detect_msmc_spike(
+    psmc      = pseudo_pair,
+    mu        = pseudo_mu,
+    gen       = gen,
+    threshold = 0.1
+  )
+
+  # 3️⃣ Add spike line (if one exists)
+  if (!is.na(spike_value)) {
+    p <- p +
+      geom_vline(
+        xintercept = spike_value,
+        linetype   = "longdash",
+        linewidth  = 1,
+        colour     = "darkred"
+      )
+  }
+
+  # 4️⃣ Save
+  ggsave(
+    filename = save_file,
+    plot     = p,
+    width    = 10,
+    height   = 7,
+    dpi      = 300
+  )
 }
 
+
 ```
+
 
 
 
@@ -1373,3 +1402,4 @@ for (sample_name in samples_to_run) {
 
 
 ``` 
+
