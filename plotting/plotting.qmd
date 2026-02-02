@@ -960,9 +960,6 @@ plot_msmc_facet <- function(
 
 
 
-
-
-
 autosomal_plot <- plot_msmc_facet(
   msmc_data = msmc_annotated,
   mu = mu,
@@ -971,7 +968,7 @@ autosomal_plot <- plot_msmc_facet(
   color_var = "continent",
   group_line_var = "sample",
   ncol_panels = 2,
-  xlims = c(1e4, 1e7),
+  xlims = c(1, 1e7),
   ylims = c(1e3, 1e7),
   manual_colors = continent_colors,
   save_file = file.path(plots_dir, "msmc_all_samples_facet.png")
@@ -990,7 +987,7 @@ autosomal_highlights_plot <- plot_msmc_facet(
   group_line_var = "sample",
   line_label = "sample + region",
   ncol_panels = 2,
-  xlims = c(1e4, 1e7),
+  xlims = c(1, 1e7),
   ylims = c(1e3, 1e7),
   manual_colors = continent_colors,
   save_file = file.path(plots_dir, "msmc_highlight_samples_facet.png")
@@ -1007,7 +1004,7 @@ pseudodip_plot <- plot_msmc_facet(
   color_var = "continent_pair",
   group_line_var = "pair_id",
   ncol_panels = 4,
-  xlims = c(1e5, 1e7),
+  xlims = c(1, 1e7),
   ylims = c(1e3, 1e8),
   save_file = file.path(plots_dir, "MSMC_pseudodiploids_facet.png")
 )
@@ -1024,226 +1021,107 @@ asia_pseudodip_plot <- plot_msmc_facet(
   color_var = "continent_pair",
   group_line_var = "pair_id",
   ncol_panels = 2,
-  xlims = c(1e5, 5e6),
+  xlims = c(1, 5e6),
   ylims = c(7e3, 1e9),
   save_file = file.path(plots_dir, "MSMC_pseudodiploids_asia.png")
 )
 ```
 
+
+
+
+
 ```{r}
+########let's build from lambda, like anders' script 
+########### function to detect spike USING LAMBDA (correct for MSMC)
+detect_msmc_spike_lambda <- function(msmc, mu, gen,
+                                     increase_threshold = 1.5,
+                                     debug = FALSE) {
 
-
-
-pair_id_val <- unique(msmc_pseudo$pair_id)[1]
-
-pseudo_pair <- msmc_pseudo %>%
-  filter(pair_id == pair_id_val)
-
-ind1 <- pseudo_pair$sample1[1]
-ind2 <- pseudo_pair$sample2[1]
-
-reg1 <- pseudo_pair$region1[1]
-reg2 <- pseudo_pair$region2[1]
-
-autosomes_sub <- msmc_annotated %>%
-  filter(sample %in% c(ind1, ind2))
-
-p <- plot_msmc_facet(
-  msmc_data = autosomes_sub,
-  autosomal_data = autosomes_sub,
-  pseudodiploid_data = pseudo_pair,
-  mu = mu,
-  pseudodip_mu = pseudo_mu,
-  gen = gen,
-  panel_grouping_var = "pair_id",
-  group_line_var = "sample",
-  color_var = "continent",
-  line_label = "sample + region",
-  save_file = NULL,
-  xlims = c(3e4, 5e6),
-  ylims = c(1e3, 1e12),
-)
-
-detect_msmc_spike <- function(psmc, mu, gen, segment = 25) {
-
-  df <- psmc %>%
-    arrange(left_time_boundary) %>%
+  msmc_proc <- msmc %>%
+    arrange(left_time_boundary) %>%   # recent → ancient
     mutate(
-      time_scaled = (left_time_boundary / mu) * gen
+      #time_scaled = (left_time_boundary / mu) * gen,
+      time_scaled = (right_time_boundary / mu) * gen,
+      Ne_scaled   = 1 / (2 * mu * lambda_00)
     )
 
-  if (nrow(df) < segment) {
-    return(NA_real_)
+  if (debug) {
+    message("Full MSMC matrix (recent → ancient):")
+    print(
+      msmc_proc %>%
+        select(time_scaled, lambda_00, Ne_scaled)
+    )
   }
 
-  return(df$time_scaled[segment])
-}
-
-
-
-spike_value <- detect_msmc_spike(
-  psmc     = pseudo_pair,
-  mu       = pseudo_mu,
-  gen      = gen,
-)
-
-spike_value
-# numeric time in years (already scaled)
-
-p_spike <- p +
-  geom_vline(
-    xintercept = spike_value,
-    linetype   = "longdash",
-    linewidth  = 1,
-    colour     = "darkred"
-  )
-
-ggsave(
-  filename = file.path(plots_dir, "msmc_pseudo_lines_test.png"),
-  plot     = p_spike,
-  width    = 10,
-  height   = 7,
-  dpi      = 300
-)
-
-
-```
-
-
-```{r}
-
-
-######### EDIT
-
-pair_id_val <- unique(msmc_pseudo$pair_id)[1]
-
-pseudo_pair <- msmc_pseudo %>%
-  filter(pair_id == pair_id_val)
-
-ind1 <- pseudo_pair$sample1[1]
-ind2 <- pseudo_pair$sample2[1]
-
-reg1 <- pseudo_pair$region1[1]
-reg2 <- pseudo_pair$region2[1]
-
-autosomes_sub <- msmc_annotated %>%
-  filter(sample %in% c(ind1, ind2))
-
-p <- plot_msmc_facet(
-  msmc_data = autosomes_sub,
-  autosomal_data = autosomes_sub,
-  pseudodiploid_data = pseudo_pair,
-  mu = mu,
-  pseudodip_mu = pseudo_mu,
-  gen = gen,
-  panel_grouping_var = "pair_id",
-  group_line_var = "sample",
-  color_var = "continent",
-  line_label = "sample + region",
-  save_file = NULL,
-  xlims = c(1e4, 5e6),
-  ylims = c(1e3, 1e12)
-)
-
-detect_msmc_spike <- function(msmc, mu, gen,
-                              callSpikeThreshold = 0.10,
-                              min_time = 2e4,
-                              debug = FALSE) {
-
-  msmc <- msmc %>%
-    arrange(left_time_boundary) %>%
-    mutate(time_scaled = (left_time_boundary / mu) * gen)
-
-  # Only bins after min_time
-  valid_idx <- which(msmc$time_scaled >= min_time)
-  if (length(valid_idx) < 3) return(NA_real_)
+  # --------------------------------
+  # Work forwards in time: ancient → recent
+  # --------------------------------
+  msmc_rev <- msmc_proc %>% arrange(desc(time_scaled))
 
   if (debug) {
-    message("First bins after min_time:")
-    print(msmc[valid_idx[1]:min(valid_idx[1]+20, max(valid_idx)), 
-               c("left_time_boundary", "right_time_boundary", "lambda_00", "time_scaled")])
+    message("Reversed matrix (ancient → recent):")
+    print(
+      msmc_rev %>%
+        select(time_scaled, lambda_00, Ne_scaled)
+    )
   }
 
-  # -----------------------------
-  # Step: Find the first local maximum after min_time
-  # -----------------------------
-  for (k in valid_idx[-c(1, length(valid_idx))]) {
-    # k moves LEFT → RIGHT through time bins (from more recent to older times)
-    # valid_idx ensures we only consider bins beyond min_time
-    # -c(1, length(valid_idx)) prevents out-of-bounds checks for neighbors
+  for (i in 2:nrow(msmc_rev)) {
 
-    # Local maximum condition:
-    #   - The current bin is higher than the previous (closer to present)
-    #   - AND higher than the next bin (further back in time)
-    if (msmc$lambda_00[k] > msmc$lambda_00[k-1] &&
-        msmc$lambda_00[k] > msmc$lambda_00[k+1]) {
+    lambda_prev <- msmc_rev$lambda_00[i - 1]  # older
+    lambda_curr <- msmc_rev$lambda_00[i]      # more recent
 
-      # -----------------------------
-      # Step: Mark the detected peak
-      # -----------------------------
-      peak_lambda <- msmc$lambda_00[k]  # lambda at the local maximum
-      if (debug) message(
-        "Detected peak at ~", 
-        round(msmc$time_scaled[k]), 
-        " yrs (λ = ", round(peak_lambda), ")"
-      )
-      # At this point, we've found where the Ne starts to rise relative to neighbors
+    # Increase in Ne == decrease in lambda
+    lambda_ratio <- lambda_prev / lambda_curr
 
-      # -----------------------------
-      # Step: Backtrack to find ≥10% drop
-      # -----------------------------
-      # We go backwards (right → left in the vector, which is older → more recent)
-      # Only consider bins that come BEFORE the peak (valid_idx < k)
-      back_idx <- rev(valid_idx[valid_idx < k])
+    if (!is.na(lambda_ratio) && lambda_ratio >= increase_threshold) {
 
-      # Find the first bin where lambda_00 is at least 10% smaller than the peak
-      # i.e., lambda <= peak / (1 + callSpikeThreshold)
-      j <- back_idx[which(msmc$lambda_00[back_idx] <= peak_lambda / (1 + callSpikeThreshold))[1]]
+      spike_time <- msmc_rev$time_scaled[i]  # RIGHT-hand side (recent)
 
-      if (!is.na(j)) {
-        # Convert the bin’s right edge into years
-        # RIGHT_EDGE is used because MSMC step functions are constant within a bin
-        spike <- (msmc$right_time_boundary[j] / mu) * gen
-        message("Inferred spike at (years): ", round(spike))
-        return(spike)  # stop at the first qualifying backtrack point
+      if (debug) {
+        message(
+          "Spike detected:\n",
+          "  Time (years): ", format(round(spike_time), scientific = FALSE, big.mark = ","), "\n",
+          "  lambda prev : ", signif(lambda_prev, 4), "\n",
+          "  lambda curr : ", signif(lambda_curr, 4), "\n",
+          "  Ratio       : ", round(lambda_ratio, 2), "×\n",
+          "  Ne prev     : ", format(round(msmc_rev$Ne_scaled[i - 1]), scientific = FALSE, big.mark = ","), "\n",
+          "  Ne curr     : ", format(round(msmc_rev$Ne_scaled[i]), scientific = FALSE, big.mark = ",")
+        )
       }
 
-      # -----------------------------
-      # Fallback: no qualifying drop found
-      # -----------------------------
-      # If none of the earlier bins are low enough, just use the peak itself
-      spike <- (msmc$left_time_boundary[k] / mu) * gen
-      message("Inferred spike at peak (no backtrack): ", round(spike))
-      return(spike)
+      return(spike_time)
     }
   }
-                              }
 
+  if (debug) message("No lambda spike detected.")
+  return(NULL)
+}
 
-
-
-
-spike_value <- detect_msmc_spike(
+spike_value <- detect_msmc_spike_lambda(
   msmc = pseudo_pair,
   mu = pseudo_mu,
   gen = gen,
-  callSpikeThreshold = 0.10,
+  increase_threshold = 1.5,
   debug = TRUE
 )
 
-# Add vertical line in ggplot
-p_spike <- p + geom_vline(
+if (!is.null(spike_value)) {
+  p_spike <- p + geom_vline(
     xintercept = spike_value,
     linetype = "longdash",
     linewidth = 1,
     colour = "darkred"
   )
 
-
-
-spike_value
-# numeric time in years (already scaled)
-
+  message(
+    "Final inferred spike time (years): ",
+    format(round(spike_value), scientific = FALSE, big.mark = ",")
+  )
+} else {
+  p_spike <- p
+}
 
 ggsave(
   filename = file.path(plots_dir, "msmc_spike_test.png"),
@@ -1254,11 +1132,201 @@ ggsave(
 )
 
 
+
+
 ```
 
 
 ```{r}
+##############################################################################
+############## COMBINE ABOVE PLOTS, shouldn't need above loop call
+##############################################################################
+pseudodiploids_spike_plots <- file.path(
+  plots_dir,
+  "msmc_pseudodiploids_individual_pairs_spike"
+)
 
+
+
+dir.create(pseudodiploids_spike_plots, recursive = TRUE, showWarnings = FALSE)
+
+##########subset for testing
+pair_ids_limited  <- unique(msmc_pseudo$pair_id)[1:50]
+for (pid in unique(msmc_pseudo$pair_id)) {
+
+  pseudo_pair <- msmc_pseudo %>% filter(pair_id == pid)
+
+  ind1 <- pseudo_pair$sample1[1]
+  ind2 <- pseudo_pair$sample2[1]
+  reg1 <- pseudo_pair$region1[1]
+  reg2 <- pseudo_pair$region2[1]
+
+  save_file <- file.path(
+    pseudodiploids_spike_plots,
+    paste0(
+      gsub("[^A-Za-z0-9_-]", "_", reg1), "_",
+      gsub("[^A-Za-z0-9_-]", "_", reg2),
+      ".png"
+    )
+  )
+
+  autosomes_sub <- msmc_annotated %>%
+    filter(sample %in% c(ind1, ind2))
+
+  # ---- Base MSMC plot ----
+  p <- plot_msmc_facet(
+    msmc_data = autosomes_sub,
+    autosomal_data = autosomes_sub,
+    pseudodiploid_data = pseudo_pair,
+    mu = mu,
+    pseudodip_mu = pseudo_mu,
+    gen = gen,
+    panel_grouping_var = "pair_id",
+    group_line_var = "sample",
+    color_var = "continent",
+    line_label = "sample + region",
+    save_file = NULL,
+    xlims = c(1e2, 5e6),
+    ylims = c(1e3, 1e15)
+  )
+
+  # ---- Detect spike ----
+  spike_value <- detect_msmc_spike_lambda(
+    msmc = pseudo_pair,
+    mu = pseudo_mu,
+    gen = gen,
+    increase_threshold = 3,
+    debug = FALSE
+  )
+
+  # ---- Overlay spike ----
+  if (!is.null(spike_value)) {
+    p <- p + geom_vline(
+      xintercept = spike_value,
+      linetype = "longdash",
+      linewidth = 1,
+      colour = "darkred"
+    )
+
+    message(
+      "Spike detected for ", reg1, " × ", reg2, ": ",
+      format(round(spike_value), scientific = FALSE, big.mark = ","),
+      " years"
+    )
+  }
+
+  ggsave(
+    filename = save_file,
+    plot     = p,
+    width    = 10,
+    height   = 7,
+    dpi      = 300
+  )
+}
+```
+
+
+
+```{r}
+pseudo_debug <- msmc_pseudo %>%
+  filter(sample1 == "S120237", sample2 == "X11469") %>%
+  arrange(left_time_boundary)
+
+
+debug_mat <- pseudo_debug %>%
+  arrange(left_time_boundary) %>%   # recent → ancient
+  mutate(
+    time_scaled = (left_time_boundary / pseudo_mu) * gen,
+    Ne_scaled   = 1 / (2 * pseudo_mu * lambda_00)
+  ) %>%
+  arrange(desc(time_scaled)) %>%    # ancient → recent
+  mutate(
+    lambda_prev = lag(lambda_00),
+    lambda_curr = lambda_00,
+    lambda_ratio = lambda_prev / lambda_curr
+  )
+
+debug_mat %>%
+  select(
+    time_scaled,
+    lambda_prev,
+    lambda_curr,
+    lambda_ratio,
+    Ne_scaled
+  )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
 pseudodiploids_plots <- file.path(
   plots_dir,
   "msmc_pseudodiploids_individual_pairs"
@@ -1268,36 +1336,36 @@ if (!dir.exists(pseudodiploids_plots)) {
   dir.create(pseudodiploids_plots, recursive = TRUE)
 }
 
-if (!dir.exists(pseudodiploids_plots)) {
-  dir.create(pseudodiploids_plots, recursive = TRUE)
-}
-
+# All unique pair IDs
 pairs_to_run <- unique(msmc_pseudo$pair_id)
-pairs_to_run <- unique(msmc_pseudo$pair_id)[1:3]
+#pairs_to_run <- unique(msmc_pseudo$pair_id)[1:3]
 
+# Uncomment the next line to only run the first 5 pairs (for testing)
+# pairs_to_run <- head(pairs_to_run, 5)
 
 for (pair_id in pairs_to_run) {
 
   pseudo_pair <- msmc_pseudo %>% 
     filter(pair_id == !!pair_id)
 
+  # Extract source individuals
   ind1 <- pseudo_pair$sample1[1]
   ind2 <- pseudo_pair$sample2[1]
 
-  # NEW: extract regions for naming
+  # Extract regions for naming
   reg1 <- pseudo_pair$region1[1]
   reg2 <- pseudo_pair$region2[1]
 
   autosomes_sub <- msmc_annotated %>%
     filter(sample %in% c(ind1, ind2))
 
-  # UPDATED: save file using region names. can do with sample names instead
+  # Save file path (REGION-based)
   save_file <- file.path(
     pseudodiploids_plots,
     paste0(reg1, "_", reg2, ".png")
   )
 
-
+  # Plot + save
   plot_msmc_facet(
     msmc_data = autosomes_sub,
     autosomal_data = autosomes_sub,
@@ -1313,52 +1381,7 @@ for (pair_id in pairs_to_run) {
     xlims = c(3e4, 5e6),
     ylims = c(1e3, 1e12)
   )
-    # 1️⃣ Build base plot (DO NOT save yet)
-  p <- plot_msmc_facet(
-    msmc_data = autosomes_sub,
-    autosomal_data = autosomes_sub,
-    pseudodiploid_data = pseudo_pair,
-    mu = mu,
-    pseudodip_mu = pseudo_mu,
-    gen = gen,
-    panel_grouping_var = "pair_id",
-    group_line_var = "sample",
-    color_var = "continent",
-    line_label = "sample + region",
-    save_file = NULL,          # important
-    xlims = c(3e4, 5e6),
-    ylims = c(1e3, 1e12)
-  )
-
-  # 2️⃣ Detect spike for THIS pseudodiploid
-  spike_value <- detect_msmc_spike(
-    psmc      = pseudo_pair,
-    mu        = pseudo_mu,
-    gen       = gen,
-    threshold = 0.1
-  )
-
-  # 3️⃣ Add spike line (if one exists)
-  if (!is.na(spike_value)) {
-    p <- p +
-      geom_vline(
-        xintercept = spike_value,
-        linetype   = "longdash",
-        linewidth  = 1,
-        colour     = "darkred"
-      )
-  }
-
-  # 4️⃣ Save
-  ggsave(
-    filename = save_file,
-    plot     = p,
-    width    = 10,
-    height   = 7,
-    dpi      = 300
-  )
 }
-
 
 ```
 
