@@ -1104,6 +1104,76 @@ detect_msmc_spike_lambda <- function(msmc, mu, gen,
 
 
 ```{r}
+detect_msmc_spike_lambda <- function(
+  msmc,
+  mu,
+  gen,
+  single_bin_threshold = NULL,
+  multi_bin_bins = NULL,
+  multi_bin_threshold = NULL,
+  debug = FALSE
+) {
+
+  # ---- preprocess MSMC table ----
+  msmc_proc <- msmc %>%
+    arrange(right_time_boundary) %>%  # recent → ancient
+    mutate(
+      lambda = lambda_00,
+      time_scaled = right_time_boundary / mu * gen
+    )
+
+  # ---- work ancient → recent ----
+  msmc_rev <- msmc_proc %>%
+    arrange(desc(time_scaled))
+
+  if (debug) {
+    message("MSMC table reversed (ancient → recent):")
+    print(msmc_rev %>% select(time_scaled, lambda))
+  }
+
+  # ---- single-bin spike detection ----
+  for (i in 2:nrow(msmc_rev)) {
+    lambda_prev <- msmc_rev$lambda[i - 1]
+    lambda_curr <- msmc_rev$lambda[i]
+    lambda_ratio <- lambda_prev / lambda_curr  # Anders-style
+
+    if (!is.na(lambda_ratio) && lambda_ratio >= single_bin_threshold) {
+      if (debug) message("Single-bin spike at ", signif(msmc_rev$time_scaled[i], 4))
+      
+      # ---- print spike type + ratio ----
+      print(paste0("Spike type detected: single_bin (ratio: ", signif(lambda_ratio, 4), ")"))
+      
+      return(msmc_rev$time_scaled[i])  # numeric only
+    }
+  }
+
+  # ---- multi-bin cumulative spike detection ----
+  if (nrow(msmc_rev) >= multi_bin_bins + 1) {
+    for (i in 1:(nrow(msmc_rev) - multi_bin_bins)) {
+      lambda_start <- msmc_rev$lambda[i]
+      lambda_end   <- msmc_rev$lambda[i + multi_bin_bins]
+      lambda_ratio_multi <- lambda_start / lambda_end
+
+      if (!is.na(lambda_start) && lambda_start > 0 &&
+          lambda_ratio_multi >= multi_bin_threshold) {  # Anders-style ratio
+        if (debug) message("Multi-bin spike at ", signif(msmc_rev$time_scaled[i + multi_bin_bins], 4))
+        
+        # ---- print spike type + ratio ----
+        print(paste0("Spike type detected: multi_bin (ratio: ", signif(lambda_ratio_multi, 4), ")"))
+        
+        return(msmc_rev$time_scaled[i + multi_bin_bins])  # numeric only
+      }
+    }
+  }
+
+  if (debug) message("No lambda spike detected.")
+  return(NULL)
+}
+````
+
+
+
+```{r}
 ##############################################################################
 ############## COMBINE ABOVE PLOTS, shouldn't need above loop call
 ##############################################################################
@@ -1118,7 +1188,7 @@ dir.create(pseudodiploids_spike_plots, recursive = TRUE, showWarnings = FALSE)
 
 ##########subset for testing
 ########## subset for testing
-pair_ids <- unique(msmc_pseudo$pair_id)[1:50]
+pair_ids <- unique(msmc_pseudo$pair_id)[1:500]
 
 for (pid in pair_ids) {
   pseudo_pair <- msmc_pseudo %>% filter(pair_id == pid)
@@ -1162,7 +1232,9 @@ for (pid in pair_ids) {
     msmc = pseudo_pair,
     mu = pseudo_mu,
     gen = gen,
-    increase_threshold = 3,
+    multi_bin_bins = 3,
+    multi_bin_threshold = 20,
+    single_bin_threshold = 11000,
     debug = FALSE
   )
 
