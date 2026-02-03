@@ -1099,40 +1099,6 @@ detect_msmc_spike_lambda <- function(msmc, mu, gen,
   return(NULL)
 }
 
-spike_value <- detect_msmc_spike_lambda(
-  msmc = pseudo_pair,
-  mu = pseudo_mu,
-  gen = gen,
-  increase_threshold = 1.5,
-  debug = TRUE
-)
-
-if (!is.null(spike_value)) {
-  p_spike <- p + geom_vline(
-    xintercept = spike_value,
-    linetype = "longdash",
-    linewidth = 1,
-    colour = "darkred"
-  )
-
-  message(
-    "Final inferred spike time (years): ",
-    format(round(spike_value), scientific = FALSE, big.mark = ",")
-  )
-} else {
-  p_spike <- p
-}
-
-ggsave(
-  filename = file.path(plots_dir, "msmc_spike_test.png"),
-  plot     = p_spike,
-  width    = 10,
-  height   = 7,
-  dpi      = 300
-)
-
-
-
 
 ```
 
@@ -1151,9 +1117,10 @@ pseudodiploids_spike_plots <- file.path(
 dir.create(pseudodiploids_spike_plots, recursive = TRUE, showWarnings = FALSE)
 
 ##########subset for testing
-pair_ids_limited  <- unique(msmc_pseudo$pair_id)[1:50]
-for (pid in unique(msmc_pseudo$pair_id)) {
+########## subset for testing
+pair_ids <- unique(msmc_pseudo$pair_id)[1:50]
 
+for (pid in pair_ids) {
   pseudo_pair <- msmc_pseudo %>% filter(pair_id == pid)
 
   ind1 <- pseudo_pair$sample1[1]
