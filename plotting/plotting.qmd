@@ -1030,80 +1030,11 @@ asia_pseudodip_plot <- plot_msmc_facet(
 
 
 
-
 ```{r}
+
 ########let's build from lambda, like anders' script 
 ########### function to detect spike USING LAMBDA (correct for MSMC)
-detect_msmc_spike_lambda <- function(msmc, mu, gen,
-                                     increase_threshold = 1.5,
-                                     debug = FALSE) {
 
-  msmc_proc <- msmc %>%
-    arrange(left_time_boundary) %>%   # recent → ancient
-    mutate(
-      #time_scaled = (left_time_boundary / mu) * gen,
-      time_scaled = (right_time_boundary / mu) * gen,
-      Ne_scaled   = 1 / (2 * mu * lambda_00)
-    )
-
-  if (debug) {
-    message("Full MSMC matrix (recent → ancient):")
-    print(
-      msmc_proc %>%
-        select(time_scaled, lambda_00, Ne_scaled)
-    )
-  }
-
-  # --------------------------------
-  # Work forwards in time: ancient → recent
-  # --------------------------------
-  msmc_rev <- msmc_proc %>% arrange(desc(time_scaled))
-
-  if (debug) {
-    message("Reversed matrix (ancient → recent):")
-    print(
-      msmc_rev %>%
-        select(time_scaled, lambda_00, Ne_scaled)
-    )
-  }
-
-  for (i in 2:nrow(msmc_rev)) {
-
-    lambda_prev <- msmc_rev$lambda_00[i - 1]  # older
-    lambda_curr <- msmc_rev$lambda_00[i]      # more recent
-
-    # Increase in Ne == decrease in lambda
-    lambda_ratio <- lambda_prev / lambda_curr
-
-    if (!is.na(lambda_ratio) && lambda_ratio >= increase_threshold) {
-
-      spike_time <- msmc_rev$time_scaled[i]  # RIGHT-hand side (recent)
-
-      if (debug) {
-        message(
-          "Spike detected:\n",
-          "  Time (years): ", format(round(spike_time), scientific = FALSE, big.mark = ","), "\n",
-          "  lambda prev : ", signif(lambda_prev, 4), "\n",
-          "  lambda curr : ", signif(lambda_curr, 4), "\n",
-          "  Ratio       : ", round(lambda_ratio, 2), "×\n",
-          "  Ne prev     : ", format(round(msmc_rev$Ne_scaled[i - 1]), scientific = FALSE, big.mark = ","), "\n",
-          "  Ne curr     : ", format(round(msmc_rev$Ne_scaled[i]), scientific = FALSE, big.mark = ",")
-        )
-      }
-
-      return(spike_time)
-    }
-  }
-
-  if (debug) message("No lambda spike detected.")
-  return(NULL)
-}
-
-
-```
-
-
-```{r}
 detect_msmc_spike_lambda <- function(
   msmc,
   mu,
@@ -1262,37 +1193,6 @@ for (pid in pair_ids) {
     dpi      = 300
   )
 }
-```
-
-
-
-```{r}
-pseudo_debug <- msmc_pseudo %>%
-  filter(sample1 == "S120237", sample2 == "X11469") %>%
-  arrange(left_time_boundary)
-
-
-debug_mat <- pseudo_debug %>%
-  arrange(left_time_boundary) %>%   # recent → ancient
-  mutate(
-    time_scaled = (left_time_boundary / pseudo_mu) * gen,
-    Ne_scaled   = 1 / (2 * pseudo_mu * lambda_00)
-  ) %>%
-  arrange(desc(time_scaled)) %>%    # ancient → recent
-  mutate(
-    lambda_prev = lag(lambda_00),
-    lambda_curr = lambda_00,
-    lambda_ratio = lambda_prev / lambda_curr
-  )
-
-debug_mat %>%
-  select(
-    time_scaled,
-    lambda_prev,
-    lambda_curr,
-    lambda_ratio,
-    Ne_scaled
-  )
 ```
 
 
