@@ -901,10 +901,10 @@ plot_msmc_facet <- function(
     labels = c("10 kya", "100 kya", "1 Mya")
     ) +
     scale_y_log10(
-      limits = ylims,
       breaks = c(1e3, 1e4, 1e5, 1e6, 1e7),
       labels = c("1k", "10k", "100k", "1M", "10M")
     ) +
+    coord_cartesian(ylim = ylims) +
     annotation_logticks(sides = "bl") +
     theme_bw(base_size = 12) +
     theme(
@@ -1035,6 +1035,8 @@ asia_pseudodip_plot <- plot_msmc_facet(
 ########let's build from lambda, like anders' script 
 ########### function to detect spike USING LAMBDA (correct for MSMC)
 
+#detect both spikes at once
+
 detect_msmc_spike_lambda <- function(
   msmc,
   mu,
@@ -1044,63 +1046,96 @@ detect_msmc_spike_lambda <- function(
   multi_bin_threshold = NULL,
   debug = FALSE
 ) {
-
+  
   # ---- preprocess MSMC table ----
   msmc_proc <- msmc %>%
-    arrange(right_time_boundary) %>%  # recent → ancient
     mutate(
       lambda = lambda_00,
       time_scaled = right_time_boundary / mu * gen
-    )
-
-  # ---- work ancient → recent ----
-  msmc_rev <- msmc_proc %>%
-    arrange(desc(time_scaled))
+    ) %>%
+    arrange(desc(time_scaled))  # ancient → recent
 
   if (debug) {
-    message("MSMC table reversed (ancient → recent):")
-    print(msmc_rev %>% select(time_scaled, lambda))
+    message("MSMC table (ancient → recent):")
+    print(msmc_proc %>% select(time_scaled, lambda))
   }
 
-  # ---- single-bin spike detection ----
-  for (i in 2:nrow(msmc_rev)) {
-    lambda_prev <- msmc_rev$lambda[i - 1]
-    lambda_curr <- msmc_rev$lambda[i]
-    lambda_ratio <- lambda_prev / lambda_curr  # Anders-style
-
-    if (!is.na(lambda_ratio) && lambda_ratio >= single_bin_threshold) {
-      if (debug) message("Single-bin spike at ", signif(msmc_rev$time_scaled[i], 4))
-      
-      # ---- print spike type + ratio ----
-      print(paste0("Spike type detected: single_bin (ratio: ", signif(lambda_ratio, 4), ")"))
-      
-      return(msmc_rev$time_scaled[i])  # numeric only
+  n <- nrow(msmc_proc)
+  
+  # ---- storage for candidate spikes ----
+  spikes <- tibble(
+    type = character(),
+    time = numeric(),
+    ratio = numeric()
+  )
+  
+  # ---- iterate ancient → recent ----
+  for (i in 2:n) {
+    lambda_prev <- msmc_proc$lambda[i - 1]
+    lambda_curr <- msmc_proc$lambda[i]
+    
+    # --- single-bin ratio ---
+    if (!is.na(lambda_prev) && !is.na(lambda_curr) &&
+        !is.null(single_bin_threshold)) {
+      lambda_ratio <- lambda_prev / lambda_curr
+      if (lambda_ratio >= single_bin_threshold) {
+        spikes <- spikes %>% add_row(
+          type = "single_bin",
+          time = msmc_proc$time_scaled[i],
+          ratio = lambda_ratio
+        )
+        if (debug) message("Single-bin spike candidate at ",
+                           signif(msmc_proc$time_scaled[i], 4),
+                           " (ratio: ", signif(lambda_ratio, 4), ")")
+      }
     }
-  }
-
-  # ---- multi-bin cumulative spike detection ----
-  if (nrow(msmc_rev) >= multi_bin_bins + 1) {
-    for (i in 1:(nrow(msmc_rev) - multi_bin_bins)) {
-      lambda_start <- msmc_rev$lambda[i]
-      lambda_end   <- msmc_rev$lambda[i + multi_bin_bins]
-      lambda_ratio_multi <- lambda_start / lambda_end
-
-      if (!is.na(lambda_start) && lambda_start > 0 &&
-          lambda_ratio_multi >= multi_bin_threshold) {  # Anders-style ratio
-        if (debug) message("Multi-bin spike at ", signif(msmc_rev$time_scaled[i + multi_bin_bins], 4))
-        
-        # ---- print spike type + ratio ----
-        print(paste0("Spike type detected: multi_bin (ratio: ", signif(lambda_ratio_multi, 4), ")"))
-        
-        return(msmc_rev$time_scaled[i + multi_bin_bins])  # numeric only
+    
+    # --- multi-bin ratio ---
+    if (!is.null(multi_bin_bins) && !is.null(multi_bin_threshold) &&
+        i + multi_bin_bins <= n) {
+      lambda_start <- msmc_proc$lambda[i]
+      lambda_end   <- msmc_proc$lambda[i + multi_bin_bins]
+      if (!is.na(lambda_start) && !is.na(lambda_end) &&
+          lambda_start > 0) {
+        lambda_ratio_multi <- lambda_start / lambda_end
+        if (lambda_ratio_multi >= multi_bin_threshold) {
+          spikes <- spikes %>% add_row(
+            type = "multi_bin",
+            time = msmc_proc$time_scaled[i],
+            ratio = lambda_ratio_multi
+          )
+          if (debug) message("Multi-bin spike candidate from ",
+                             signif(msmc_proc$time_scaled[i + multi_bin_bins],4),
+                             " → ", signif(msmc_proc$time_scaled[i],4),
+                             " (ratio: ", signif(lambda_ratio_multi,4), ")")
+        }
       }
     }
   }
-
-  if (debug) message("No lambda spike detected.")
-  return(NULL)
+  
+  # ---- choose spike to return ----
+  if (nrow(spikes) == 0) {
+    if (debug) message("No spikes detected.")
+    return(NULL)
+  }
+  
+  # prioritize multi-bin spikes first
+  multi_spikes <- spikes %>% filter(type == "multi_bin")
+  if (nrow(multi_spikes) > 0) {
+    # oldest multi-bin spike (ancient → recent)
+    oldest_multi <- multi_spikes %>% slice(1)
+    if (debug) message("Returning oldest multi-bin spike at ", oldest_multi$time)
+    return(oldest_multi$time)
+  }
+  
+  # if no multi-bin, return oldest single-bin spike
+  oldest_single <- spikes %>% filter(type == "single_bin") %>% slice(1)
+  if (debug) message("Returning oldest single-bin spike at ", oldest_single$time)
+  return(oldest_single$time)
 }
-````
+```
+
+
 
 
 
@@ -1155,7 +1190,7 @@ for (pid in pair_ids) {
     line_label = "sample + region",
     save_file = NULL,
     xlims = c(1e2, 5e6),
-    ylims = c(1e3, 1e15)
+    ylims = c(1e3, 1e7) 
   )
 
   # ---- Detect spike ----
@@ -1163,8 +1198,8 @@ for (pid in pair_ids) {
     msmc = pseudo_pair,
     mu = pseudo_mu,
     gen = gen,
-    multi_bin_bins = 3,
-    multi_bin_threshold = 20,
+    multi_bin_bins = 4,
+    multi_bin_threshold = 25,
     single_bin_threshold = 11000,
     debug = FALSE
   )
@@ -1195,11 +1230,57 @@ for (pid in pair_ids) {
 }
 ```
 
+```{r}
+debug_pairs <- c(
+  "AK_S12-1159_LIS1300",#ka × England example
+  "AK_S12-1159_LIS557"       # Alaska × Finland example
+)
+for (pattern in debug_pairs) {
+  pseudo_pair <- msmc_pseudo %>% filter(grepl(pattern, pair_id))
+
+  if (nrow(pseudo_pair) == 0) {
+    message("No data for pattern: ", pattern)
+    next
+  }
+
+  message("\n=== DEBUG: ", pseudo_pair$pair_id[1], " ===\n")
+
+  msmc_proc <- pseudo_pair %>%
+    mutate(
+      lambda = lambda_00,
+      time_scaled = right_time_boundary / pseudo_mu * gen
+    ) %>%
+    arrange(desc(time_scaled))  # ancient → recent
+
+  # Inspect around ~100kya
+  window_mask <- msmc_proc$time_scaled >= 5e4 & msmc_proc$time_scaled <= 1.5e5
+  msmc_window <- msmc_proc[window_mask, ]
+  print(msmc_window %>% select(time_scaled, lambda))
+
+  # Run spike detection
+  spike_value <- detect_msmc_spike_lambda(
+    msmc = pseudo_pair,
+    mu = pseudo_mu,
+    gen = gen,
+    multi_bin_bins = 4,
+    multi_bin_threshold = 25,
+    single_bin_threshold = 11000,
+    debug = TRUE
+  )
+
+  if (!is.null(spike_value)) {
+    message("Spike detected at: ", signif(spike_value, 4), " years")
+  } else {
+    message("No spike detected in this pair around 100kya.")
+  }
+}
+
+```
 
 
-
-
-
+```{r}
+#just a helper chunk to make everything above easier to run 
+```
 
 
 
@@ -1318,7 +1399,7 @@ for (pair_id in pairs_to_run) {
     line_label = "sample + region",
     save_file = save_file,
     xlims = c(3e4, 5e6),
-    ylims = c(1e3, 1e12)
+    ylims = c(1e3, 1e7
   )
 }
 
