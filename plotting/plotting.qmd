@@ -309,6 +309,59 @@ pca_zsh2022_vlagopus_plot_poster <- plot_pca(
 
 
 
+##############################################################################
+#include ellie armstrong assembly
+##############################################################################
+
+additional_samples <- c(
+  "ea_assembly"
+)
+
+metadata4 <- metadata %>%
+  anti_join(
+    tibble(sample = additional_samples),
+    by = "sample"
+  ) %>%
+  bind_rows(
+    tibble(
+      sample = additional_samples,
+      continent = c(
+        "other"   # ea_assembly
+      ),
+      region = c(
+        "(EA assembly)"
+      )
+    )
+  )
+
+
+evec_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/armstrong_vvulpes_eigenstrat/armstrong_vvulpes_tidy.evec"
+eval_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/armstrong_vvulpes_eigenstrat/armstrong_vvulpes.pca.eval"
+
+EA_plot <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata4,
+  point_label = "sample ",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/EA.png",
+  plot_title = "PCA including EA assembly",
+  continent_colors = continent_colors,
+  width = 30,
+  height = 20
+)
+
+EA_plot_poster <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata4,
+  point_label = "sample + region",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/EA.poster.png",
+  plot_title = "PCA including EA assembly",
+  continent_colors = continent_colors,
+  poster = TRUE
+)
+
+
 
 ```
 
@@ -1198,8 +1251,8 @@ for (pid in pair_ids) {
     msmc = pseudo_pair,
     mu = pseudo_mu,
     gen = gen,
-    multi_bin_bins = 4,
-    multi_bin_threshold = 25,
+    multi_bin_bins = 2,
+    multi_bin_threshold = 35,
     single_bin_threshold = 11000,
     debug = FALSE
   )
