@@ -1,0 +1,1501 @@
+----
+title: "plots"
+----
+######################## ACTUALLY RUNNING THESE THINGS ########################
+#would it make more sense to run the code in separate .R scripts and pull the information from theere? 
+#for instance https://www.reddit.com/r/bioinformatics/comments/13hzttk/seeking_advice_on_managing_r_markdown_code_and/
+#specifically, this comment? https://www.reddit.com/r/bioinformatics/comments/13hzttk/comment/jk9haps/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
+```{r}
+#load packages and get base metadata to work with
+library(tidyverse) #version in redfox conda: 2.0.0
+library(googlesheets4) # 1.1.1
+library(ggrepel) # 0.9.6
+library(RColorBrewer) #1.1.3
+library(grid) #4.4.3
+library(gtable) #0.3.6
+library(dplyr) #2.1.4
+library(patchwork) #1.3.0
+library(purrr)
+
+# Import metadata from Google Sheets
+sheet_url <- "https://docs.google.com/spreadsheets/d/1KBqsCfPiuyno90iRJ-O0wV0HIijFncstvcIpGnpGY0k/edit?gid=1838883534#gid=1838883534"
+gs4_auth(path = "/gpfs/bio/xrq24scu/fox_repo/plotting/googlesheetskey.json") #you have to generate this json key from your google account
+metadata <- read_sheet(sheet_url, sheet = "cluster_genomes_and_paths") %>%
+  mutate(Sample = as.character(Sample)) %>%   # force only Sample to character
+  rename(sample = Sample)
+
+
+# Specify continent order manually (adjust as needed)
+continent_order <- c("Europe", "WestAsia/NorthAfrica", "Asia", "Americas")
+
+
+metadata <- metadata %>%
+  mutate(continent = case_when(
+    region %in% c("Russia", "West Russia", "East Russia", "North Russia", "China", "Xinjiang", "Japan", "India") ~ "Asia",
+    region %in% c("Iraq", "Israel", "Saudi Arabia", "Mauritania", "Tunisia", "Morocco", "Iran", "Western Sahara") ~ "WestAsia/NorthAfrica",
+    region %in% c("Canada", "Saskatchewan", "Nunavut", "Newfoundland", "Quebec", "United States", state.name) ~ "Americas",
+    TRUE ~ "Europe"   # most of our unique countries will be in europe, so this makes sense
+  ))
+
+metadata$continent <- factor(metadata$continent, levels = continent_order) #convert from string to factor type, makes handling it
+#in plots, for colors etc much easier 
+
+
+
+#####
+#Assign the color palette for the plots
+#####
+continent_colors <- setNames(RColorBrewer::brewer.pal(n = length(continent_order), name = "Set2"), continent_order)
+
+plots_dir <- "/gpfs/data/bergstrom/paula/fox_repo/plotting/"
+
+```
+
+
+```{r}
+
+plot_pca <- function(
+    evec_path,               
+    eval_path,               
+    metadata,                
+    excluded_samples = NULL, 
+    point_label = c("sample", "region", "sample + region"),
+    output_file,             
+    plot_title = "PCA Plot",
+    continent_colors,        
+    width = 12,
+    height = 10,
+    poster = FALSE           
+) {
+
+  # Validate label options
+  point_label <- match.arg(point_label)
+
+  #### ------------------------------
+  #### Load and clean PCA eigenvectors
+  #### ------------------------------
+  pca <- read_tsv(evec_path, show_col_types = FALSE, col_names = TRUE)
+
+  # If the final column is non-numeric (e.g., "Control"), drop it safely
+  if (!is.numeric(pca[[ncol(pca)]])) {
+    message("Note: Dropping final non-numeric column from PCA file: ", colnames(pca)[ncol(pca)])
+    pca <- pca[, -ncol(pca)]
+  }
+
+  # Rename PC columns (everything after the sample column)
+  colnames(pca)[2:ncol(pca)] <- paste0("PC", 1:(ncol(pca) - 1))
+
+  # Trim whitespace from sample IDs
+  pca$sample <- stringr::str_trim(as.character(pca$sample))
+  metadata$sample <- stringr::str_trim(as.character(metadata$sample))
+
+  if (!is.null(excluded_samples)) {
+    excluded_samples <- stringr::str_trim(excluded_samples)
+  }
+
+  #### ------------------------------
+  #### Join metadata
+  #### ------------------------------
+  pca_meta <- left_join(pca, metadata, by = "sample")
+
+  #### ------------------------------
+  #### Filter excluded samples
+  #### ------------------------------
+  if (!is.null(excluded_samples)) {
+    before_n <- nrow(pca_meta)
+    pca_meta <- pca_meta %>% filter(!sample %in% excluded_samples)
+    after_n <- nrow(pca_meta)
+
+    message("Filtered out ", before_n - after_n, " samples.")
+  }
+
+  #### ------------------------------
+  #### Load eigenvalues (variance explained)
+  #### ------------------------------
+  eigenvals <- scan(eval_path, quiet = TRUE)
+  variance_explained <- 100 * eigenvals / sum(eigenvals)
+
+  x_lab <- paste0("PC1 (", round(variance_explained[1], 1), "% variance)")
+  y_lab <- paste0("PC2 (", round(variance_explained[2], 1), "% variance)")
+
+  #### ------------------------------
+  #### Label selection
+  #### ------------------------------
+  if (point_label == "sample") {
+      label_aes <- aes(label = sample)
+  } else if (point_label == "region") {
+      label_aes <- aes(label = region)
+  } else {  
+      label_aes <- aes(label = paste0(sample, " (", region, ")"))
+  }
+
+  #### ------------------------------
+  #### Poster settings override only text size + max overlaps
+  #### ------------------------------
+  if (poster) {
+      text_size <- 5
+      max_overlaps <- 20
+  } else {
+      text_size <- 3.5
+      max_overlaps <- 35
+  }
+
+  #### ------------------------------
+  #### Build plot
+  #### ------------------------------
+  p <- ggplot(pca_meta, aes(x = PC1, y = PC2, color = continent)) +
+    geom_point(size = 3) +
+    geom_text_repel(
+      label_aes,
+      size = text_size,
+      box.padding = 0.5,
+      max.overlaps = max_overlaps
+    ) +
+    theme_minimal(base_size = 15) +
+    labs(title = plot_title, x = x_lab, y = y_lab) +
+    theme(
+      plot.title = element_text(size = 20, hjust = 0.5),
+      axis.title = element_text(size = 15),
+      axis.text = element_text(size = 12),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 14)
+    ) +
+    scale_color_manual(values = continent_colors)
+    # coord_fixed() # optionally enable for nice aspect ratio
+
+  #### ------------------------------
+  #### Save plot
+  #### ------------------------------
+  ggsave(output_file, plot = p, width = width, height = height, dpi = 300)
+
+  return(p)
+}
+
+
+
+
+#### generate two different plots 
+excluded_samples <- readLines("/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture/low_missingness_rm_outlier_removed_samples.txt")
+
+# Normal PCA
+pca_plot <- plot_pca(
+  evec_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers_tidy.evec", #this is named differently from the .pca.eval b/c I apply one of anders' custom scripts (in eigensoft.sh). make sure you #add this script to analyses
+  eval_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers.pca.eval",
+  metadata = metadata,
+  excluded_samples = excluded_samples,
+  point_label = "sample + region",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large.png",
+  plot_title = "PCA by Continent",
+  continent_colors = continent_colors
+)
+
+# Poster Version
+pca_plot <- plot_pca(
+  evec_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers_tidy.evec",
+  eval_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes_rmoutliers.pca.eval",
+  metadata = metadata,
+  excluded_samples = excluded_samples,
+  point_label = "sample + region",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_poster.png",
+  plot_title = "PCA by Continent",
+  continent_colors = continent_colors,
+  poster = TRUE 
+)
+
+# PCA including YPI1082
+pca2_plot <- plot_pca(
+  evec_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec",
+  eval_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes.pca.eval",
+  metadata = metadata,
+  point_label = "sample + region",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_large_withYPI1082.png",
+  plot_title = "PCA with YPI1082",
+  continent_colors = continent_colors
+)
+# YPI1082 Poster Version
+pca2_plot <- plot_pca(
+  evec_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpestidy.evec",
+  eval_path = "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/Vvulpes.pca.eval",
+  metadata = metadata,
+  point_label = "sample + region",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_withYPI1082_poster.png",
+  plot_title = "PCA with YPI1082",
+  continent_colors = continent_colors,
+  poster = TRUE
+)
+
+
+#################
+# --- 1. Update metadata to include zsh2022 ---
+metadata2 <- metadata %>%
+  bind_rows(
+    tibble(
+      sample = "zsh2022",
+      continent = "Asia",       # assign the correct continent
+      region = "Corsac fox"        
+    )
+  )
+
+# --- 2. Define file paths ---
+evec_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/ypi1082_eigenstrat/Vvulpes_zsh2022_tidy.evec"
+eval_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/ypi1082_eigenstrat/Vvulpes_zsh2022.pca.eval"
+
+# --- 3. Call the plot_pca() function for normal plot ---
+pca_zsh2022_plot <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata2,
+  point_label = "sample",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_with_zsh2022.png",
+  plot_title = "PCA including zsh2022",
+  continent_colors = continent_colors
+)
+
+# --- 4. Poster version ---
+pca_zsh2022_plot_poster <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata2,
+  point_label = "sample + region",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/PCA_plot_with_zsh2022_poster.png",
+  plot_title = "PCA including zsh2022",
+  continent_colors = continent_colors,
+  poster = TRUE
+)
+
+
+##################################
+#      ARCTIC FOXES + YPI1082
+##################################
+# --- 1. Update metadata to include arctic foxes ---
+extraspecific_samples <- c("18049", "15075", "18005", "zsh2022")
+
+metadata3 <- metadata %>%
+  # remove any existing rows for these samples
+  anti_join(tibble(sample = extraspecific_samples), by = "sample") %>%
+  
+  # add corrected rows
+  bind_rows(
+    tibble(
+      sample = extraspecific_samples,
+      continent = c("other", "other", "other", "other"),
+      region = c("arctic fox", "arctic fox", "arctic fox", "corsac fox")
+    )
+  )
+
+evec_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/ypi1082_eigenstrat/Vvulpes_vlagopus_tidy.evec"
+eval_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/ypi1082_eigenstrat/Vvulpes_vlagopus.pca.eval"
+
+pca_zsh2022_vlagopus_plot <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata3,
+  point_label = "sample ",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/vlagopus_vvulpes.png",
+  plot_title = "PCA including zsh2022",
+  continent_colors = continent_colors,
+)
+
+pca_zsh2022_vlagopus_plot_poster <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata3,
+  point_label = "sample + region",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/vlagopus_vvulpes_poster.png",
+  plot_title = "PCA including zsh2022",
+  continent_colors = continent_colors,
+  poster = TRUE
+)
+
+
+
+##############################################################################
+#include ellie armstrong assembly
+##############################################################################
+
+additional_samples <- c(
+  "ea_assembly"
+)
+
+metadata4 <- metadata %>%
+  anti_join(
+    tibble(sample = additional_samples),
+    by = "sample"
+  ) %>%
+  bind_rows(
+    tibble(
+      sample = additional_samples,
+      continent = c(
+        "other"   # ea_assembly
+      ),
+      region = c(
+        "(EA assembly)"
+      )
+    )
+  )
+
+
+evec_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/armstrong_vvulpes_eigenstrat/armstrong_vvulpes_tidy.evec"
+eval_path <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/Eigenstrat/armstrong_vvulpes_eigenstrat/armstrong_vvulpes.pca.eval"
+
+EA_plot <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata4,
+  point_label = "sample ",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/EA.png",
+  plot_title = "PCA including EA assembly",
+  continent_colors = continent_colors,
+  width = 30,
+  height = 20
+)
+
+EA_plot_poster <- plot_pca(
+  evec_path = evec_path,
+  eval_path = eval_path,
+  metadata = metadata4,
+  point_label = "sample + region",
+  output_file = "/gpfs/bio/xrq24scu/fox_repo/plotting/EA.poster.png",
+  plot_title = "PCA including EA assembly",
+  continent_colors = continent_colors,
+  poster = TRUE
+)
+
+
+
+```
+
+
+
+
+```{r}
+###################################### CLUMPAK/ADMIXTURE Plotting #####################################
+
+# ----------- Set file paths -----------
+q_file_base <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/admixture"
+output_dir <- "/gpfs/data/bergstrom/paula/fox_repo/plotting"
+
+# ----------- Read sample order from .fam file -----------
+final_samples <- read.table(file.path(q_file_base, 
+                                      "low_missingness_rm_outlier_snpmanualfilter.fam"),
+                            header = FALSE)[,2]
+final_samples_df <- data.frame(sample = final_samples, stringsAsFactors = FALSE)
+
+# Join metadata to preserve sample info
+qfileorder_df <- final_samples_df %>%
+  left_join(metadata, by = "sample")
+
+
+# Population IDs for ADMIXTOOLS (optional)
+write.table(as.integer(factor(qfileorder_df$continent)),
+            file.path(q_file_base, "popID.txt"),
+            col.names = FALSE, row.names = FALSE)
+
+# ----------- Order table & exclusions -----------
+excluded <- readLines(file.path(q_file_base,
+                                "low_missingness_rm_outlier_removed_samples.txt"))
+order_df <- read_tsv(file.path(output_dir, "order.tsv"),
+                     col_names = c("sample","region","continent"),
+                     show_col_types = FALSE) %>%
+  filter(!sample %in% excluded)
+
+# Keep only relevant columns from metadata
+metadata_sel <- metadata %>% select(sample, region, continent)
+
+# Overwrite order_df values with metadata values where present
+order_df <- order_df %>%
+  left_join(metadata_sel, by = "sample") %>%
+  mutate(
+    region = ifelse(!is.na(region.y), region.y, region.x),
+    continent = continent  # comes directly from metadata
+  ) %>%
+  select(sample, region, continent)
+
+# ----------- Colors -----------
+total_k <- 6
+color_pal <- brewer.pal(min(12, total_k), "Paired")
+continent_colors <- setNames(brewer.pal(n_distinct(order_df$continent), "Set2"),
+                             unique(order_df$continent))
+
+# ----------- Range of K values and Q files -----------
+k_values <- 3:total_k
+q_files <- file.path(q_file_base, paste0("CLUMPAK.", k_values, ".Q"))
+
+# ----------- Dividers + label positions -----------
+label_df <- order_df %>%
+  mutate(sample = factor(sample, levels = order_df$sample),
+         idx = as.numeric(sample))
+
+dividers_df <- label_df %>%
+  mutate(next_continent = lead(continent)) %>%
+  filter(continent != next_continent) %>%
+  transmute(sample = idx + 0.5, prop = 1)
+
+# ----------- Helper function to plot one K -----------
+plot_admix <- function(q_file, k) {
+  q_data <- read.table(q_file, header = FALSE) %>%
+    bind_cols(tibble(sample = final_samples))
+  
+  kdf2 <- order_df %>%
+    left_join(q_data, by = "sample") %>%
+    pivot_longer(starts_with("V"), names_to = "popGroup", values_to = "prop") %>%
+    mutate(
+      popGroup = factor(as.integer(str_remove(popGroup, "V"))),
+      sample = factor(sample, levels = order_df$sample)
+    )
+  
+  ggplot(kdf2, aes(x = sample, y = prop, fill = popGroup)) +
+    geom_col(width = 1, color = "black") +
+    geom_col(data = dividers_df, aes(x = sample, y = prop), fill = "white",
+             width = 0.3, inherit.aes = FALSE) +
+    scale_fill_manual(values = setNames(color_pal[seq_len(k)], seq_len(k))) +
+    scale_color_manual(values = continent_colors) +
+    coord_cartesian(clip = "off", ylim = c(-0.05, 1)) +
+    theme_minimal() +
+    labs(title = paste("ADMIXTURE Plot K =", k), x = NULL, y = "Ancestry Proportion") +
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks = element_blank(),
+      panel.grid = element_blank(),
+      plot.margin = margin(5, 10, 5, 10),
+      legend.position = "none"  # remove legend entirely
+    )
+}
+
+# ----------- Generate list of plots -----------
+admix_plot_list <- map2(q_files, k_values, \(f, k) if (k <= total_k) plot_admix(f, k)) %>%
+  compact()
+
+# ----------- Combine plots (no legends) -----------
+n <- length(admix_plot_list)
+if (n == 0) stop("No ADMIXTURE plots to combine: check Q files and total_k.")
+
+combined_plot <- map2(admix_plot_list, seq_len(n), \(p, i) {
+  label_layer <- if (i == n) {
+    geom_text(data = label_df, aes(x = sample, y = -0.02, label = region, color=continent),
+              angle = 55, hjust = 1, size = 6, inherit.aes = FALSE)
+  } else NULL #only add the country text labels to the very last plot
+  
+  p +                     # the original ggplot object for this K
+  label_layer +          # optionally adds the region labels (or NULL for other plots)
+  theme(                 # override/add theme elements
+    legend.position = "none",             # removes the legend entirely
+    axis.text.x = element_blank(),        # removes x-axis text
+    axis.text.y = element_blank(),        # removes y-axis text
+    axis.title = element_blank(),         # removes axis titles
+    panel.grid = element_blank(),         # removes grid lines
+    plot.margin = margin(10, 20, ifelse(i == n, 90, 5), 20)  
+    # sets margins: top=10, right=20, bottom=80 for last plot (i==n) or 5 otherwise, left=20
+  )
+}) %>%
+  wrap_plots(ncol = 1, heights = rep(1, n)) +
+  plot_annotation(title = "ADMIXTURE Plots",
+                  theme = theme(plot.title = element_text(size = 18, hjust = 0.5)))
+
+
+ggsave(file.path(output_dir, "admixplots_all_clean.png"),
+       plot = combined_plot,
+       bg = 'transparent',
+       width = 16,
+       height = 9)
+```
+
+
+```{r}
+# ==================
+#   HETEROZYGOSITY 
+# ==================
+
+heterozygosity_url <- "https://docs.google.com/spreadsheets/d/1KBqsCfPiuyno90iRJ-O0wV0HIijFncstvcIpGnpGY0k/edit?gid=1838883534#gid=1838883534"
+gs4_auth(path = "/gpfs/bio/xrq24scu/fox_repo/plotting/googlesheetskey.json")
+heterozygosity_data <- read_sheet(heterozygosity_url, sheet = "HeterozygosityData") %>%
+  mutate(Sample = as.character((Sample))) %>%
+  rename(sample = Sample)
+
+#get heterozygosity data merged w/ order_df (order.tsv with poor quality
+#samples removed)
+coverage_heterozygosity <- left_join(metadata, heterozygosity_data, by = "sample")
+
+#Discard all data w/ a mean coverage below 15x, as indicated by which samples had 
+#elevated heterozygosity (in your google plot)
+filtered_cov_het <- coverage_heterozygosity[coverage_heterozygosity$mean_coverage > 15,]
+# Remove samples with NA coverage
+filtered_cov_het <- filtered_cov_het[!is.na(filtered_cov_het$mean_coverage),]
+filtered_cov_het <- filtered_cov_het[filtered_cov_het$species == "Vulpes vulpes",]
+filtered_cov_het <- filtered_cov_het[!is.na(filtered_cov_het$species),]
+
+#now get this into a plotting order you like
+# Join order with heterozygosity data
+merged.df <- left_join(order_df, filtered_cov_het, by = "sample")
+
+# Clean up duplicate columns: keep order_df's region/continent, drop the ".y"
+merged.df <- merged.df %>%
+  mutate(
+    region = coalesce(region.x, region.y),
+    continent = coalesce(continent.x, continent.y)
+  ) %>%
+  select(-region.x, -region.y, -continent.x, -continent.y)
+
+# Drop samples with missing heterozygosity values
+merged.df <- merged.df[!is.na(merged.df$Heterozygosity), ]
+
+# Create combined sample label
+merged.df$sample_region <- paste0(merged.df$sample, " (", merged.df$region, ")")
+
+# Enforce order from order_df
+merged.df$sample_region <- factor(
+  merged.df$sample_region,
+  levels = paste0(order_df$sample, " (", order_df$region, ")")
+)
+
+# Use continent colors from earlier
+continent_colors <- setNames(
+  RColorBrewer::brewer.pal(length(unique(order_df$continent)), "Set2"),
+  unique(order_df$continent)
+)
+
+# Plot
+heterozygosity_plot <- ggplot(merged.df, 
+                              aes(x = sample_region, y = Heterozygosity, color = continent)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Heterozygosity - 2 * Jackknife_SE,
+                    ymax = Heterozygosity + 2 * Jackknife_SE),
+                width = 0.2, color = "black") +
+  scale_color_manual(values = continent_colors) +
+  theme_minimal() +
+  labs(title = "Heterozygosity by Sample",
+       x = "Sample (Region)",
+       y = "Heterozygosity",
+       color = "Continent") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("/gpfs/bio/xrq24scu/fox_repo/plotting/heterozygosity_plot.png",
+       plot = heterozygosity_plot, width = 12, height = 6)
+
+
+```
+
+```{r}
+### with filtering
+# ----------- File path -----------
+fst_file <- "/gpfs/data/bergstrom/paula/fox_repo/fst_calculation/out.fstdetails.txt"
+
+# ----------- Read and clean FST file -----------
+fst_raw <- read.table(
+  fst_file,
+  header = FALSE,
+  stringsAsFactors = FALSE,
+  fill = TRUE
+)
+
+colnames(fst_raw) <- c(
+  "stat",
+  "pop1",
+  "pop2",
+  "fst",
+  "fstjack",
+  "se",
+  "z",
+  "nsnp"
+)
+
+fst_df <- fst_raw %>%
+  filter(stat == "F_st") %>%
+  mutate(
+    pop1 = stringr::str_remove(pop1, "^0:"),
+    pop2 = stringr::str_remove(pop2, "^0:")
+  )
+
+# ----------- Filter to samples used in heterozygosity plot -----------
+# IMPORTANT: use merged.df (the actual plotted set)
+valid_samples <- merged.df$sample
+
+fst_df <- fst_df %>%
+  filter(pop1 %in% valid_samples,
+         pop2 %in% valid_samples)
+
+# ----------- Build symmetric FST matrix -----------
+all_samples <- sort(unique(c(fst_df$pop1, fst_df$pop2)))
+
+fst_mat <- matrix(
+  NA_real_,
+  nrow = length(all_samples),
+  ncol = length(all_samples),
+  dimnames = list(all_samples, all_samples)
+)
+
+for (i in seq_len(nrow(fst_df))) {
+  s1 <- fst_df$pop1[i]
+  s2 <- fst_df$pop2[i]
+  fst_val <- fst_df$fst[i]
+  
+  fst_mat[s1, s2] <- fst_val
+  fst_mat[s2, s1] <- fst_val
+}
+
+diag(fst_mat) <- 0
+
+# ----------- Order samples by continent_order, then order_df -----------
+sample_order_df <- tibble(sample = rownames(fst_mat)) %>%
+  left_join(metadata %>% select(sample, continent), by = "sample") %>%
+  left_join(
+    order_df %>%
+      select(sample) %>%
+      mutate(admix_order = row_number()),
+    by = "sample"
+  ) %>%
+  mutate(
+    continent = factor(continent, levels = continent_order)
+  ) %>%
+  arrange(continent, admix_order)
+
+ordered_samples <- sample_order_df$sample
+fst_mat_ord <- fst_mat[ordered_samples, ordered_samples]
+
+# ----------- Axis labels: sample (region) -----------
+# Pull region labels from merged.df to stay consistent with heterozygosity plot
+axis_labels <- merged.df %>%
+  distinct(sample, region) %>%
+  mutate(label = paste0(sample, " (", region, ")"))
+
+label_vec <- setNames(axis_labels$label, axis_labels$sample)
+
+# ----------- Convert to long format -----------
+fst_long <- as.data.frame(as.table(fst_mat_ord))
+colnames(fst_long) <- c("sample1", "sample2", "fst")
+
+fst_long <- fst_long %>%
+  filter(sample1 != sample2)
+
+# ----------- Plot -----------
+fst_plot <- ggplot(
+  fst_long,
+  aes(
+    x = factor(sample1, levels = ordered_samples),
+    y = factor(sample2, levels = ordered_samples),
+    fill = fst
+  )
+) +
+  geom_tile(color = "white", linewidth = 0.2) +
+  scale_fill_viridis_c(
+    option = "magma",
+    na.value = "grey90",
+    name = "FST"
+  ) +
+  coord_fixed() +
+  scale_x_discrete(labels = label_vec) +
+  scale_y_discrete(labels = label_vec) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Pairwise FST (samples used in heterozygosity plot)",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
+    axis.text.y = element_text(size = 6),
+    panel.grid = element_blank()
+  )
+
+ggsave(
+  "/gpfs/bio/xrq24scu/fox_repo/plotting/pairwise_fst_heatmap_filtered.png",
+  fst_plot,
+  width = 14,
+  height = 12,
+  dpi = 300
+)
+
+```
+
+```{r} 
+#troubleshooting vertical lines
+# Absolute threshold for spike detection
+abs_threshold <- 0.10
+rel_threshold <- 0.10
+
+spike_df <- msmc_annotated %>%
+  group_by(sample) %>%
+  group_modify(~ {
+    raw_df <- .x %>% arrange(left_time_boundary)
+    spike_time <- call_msmc_spike(
+      df = raw_df,
+      abs_threshold = abs_threshold,
+      rel_threshold = rel_threshold
+    )
+
+    if (is.na(spike_time)) return(tibble())  # no spike found
+
+    tibble(
+      spike_time_scaled = (spike_time / mu) * gen
+    )
+  }) %>%
+  ungroup() %>%
+  left_join(
+    msmc_annotated %>% select(sample, continent) %>% distinct(),
+    by = "sample"
+  )
+
+
+```
+
+
+```{r}
+#average FST 
+# to code: 
+# -color-code by what the pairs are from (eg, within europe, europe-asia)
+#then plot these WITH their jackknife estimates 
+
+
+
+```
+
+```{r}
+########## attempts to combine everything
+
+library("ggh4x")
+
+# === Parameters ===
+mu  <- 4.5e-9   # mutation rate
+gen <- 2        # generation time in years
+MSMC_allsamples_dir <- "/gpfs/data/bergstrom/paula/fox_repo/MSMC/autosomal_popsize_msmc"
+
+# === Load MSMC results for autosomes ===
+MSMC_all_samples_files <- list.files(
+  MSMC_allsamples_dir,
+  pattern = "*\\.msmc\\.final\\.txt$",
+  full.names = TRUE
+)
+
+msmc_allsamples <- do.call(rbind, lapply(MSMC_all_samples_files, function(f) {
+  df <- read.table(f, header = TRUE)
+  df$sample <- sub("^(.*)\\.msmc\\.final\\.txt$", "\\1", basename(f))
+  df
+}))
+
+# === Annotate samples with continent and region ===
+pop_lookup <- order_df %>%
+  semi_join(filtered_cov_het, by = "sample") %>%
+  select(sample, continent, region) %>%
+  distinct()
+
+msmc_annotated <- msmc_allsamples %>%
+  left_join(pop_lookup, by = "sample") %>%
+  filter(!is.na(continent))
+
+# Force factor levels to match autosome palette
+msmc_annotated$continent <- factor(
+  msmc_annotated$continent,
+  levels = names(continent_colors)
+)
+
+library(dplyr)
+library(stringr)
+
+# === Load pseudodiploid MSMC results ===
+MSMC_pseudo_dir <- "/gpfs/data/bergstrom/paula/fox_repo/variant_calling/X_chromosomes/MSMC/popsize_for_pseudodiploids"
+
+MSMC_pseudo_files <- list.files(
+  MSMC_pseudo_dir,
+  pattern = "*.msmc.final.txt$",
+  full.names = TRUE
+)
+
+if (length(MSMC_pseudo_files) == 0)
+  stop("No pseudodiploid MSMC files found!")
+
+msmc_pseudo <- do.call(rbind, lapply(MSMC_pseudo_files, function(f) {
+  df <- read.table(f, header = TRUE)
+  pair <- strsplit(sub("\\.msmc\\.final\\.txt$", "", basename(f)), "\\.")[[1]]
+  df$sample1 <- pair[1]
+  df$sample2 <- pair[2]
+  df
+}))
+
+# Annotate pseudodiploids
+msmc_pseudo <- msmc_pseudo %>%
+  left_join(pop_lookup, by = c("sample1" = "sample")) %>%
+  rename(continent1 = continent, region1 = region) %>%
+  left_join(pop_lookup, by = c("sample2" = "sample")) %>%
+  rename(continent2 = continent, region2 = region) %>%
+  mutate(
+    continent1 = as.character(continent1),
+    continent2 = as.character(continent2),
+    continent_pair = apply(
+      cbind(continent1, continent2), 1,
+      function(z) paste(sort(z), collapse = "-")
+    ),
+    pair_id = paste(sample1, sample2, sep = "_")
+  )
+
+# =======
+plot_msmc_facet <- function(
+  msmc_data,
+  mu,
+  gen,
+  panel_grouping_var,
+  color_var,
+  group_line_var,
+  line_label = NULL,
+  autosomal_data = NULL,         # optional autosomal overlay
+  pseudodiploid_data = NULL,     # optional pseudodiploid overlay
+  pseudodip_mu = NULL,           # optional separate mu for pseudodiploid
+  manual_colors = NULL,
+  xlims = NULL,
+  ylims = NULL,
+  ncol_panels = 3,
+  save_file = NULL
+  ) {
+
+  library(dplyr)
+  library(ggplot2)
+  library(ggh4x)
+  library(ggrepel)
+
+  if (!is.null(line_label)) {
+    line_label <- match.arg(line_label, c("sample", "region", "sample + region"))
+  }
+
+  if (!"is_pseudodiploid" %in% colnames(msmc_data)) {
+    msmc_data <- msmc_data %>% mutate(is_pseudodiploid = FALSE)
+  }
+
+  # Base autosomal scaling
+  df <- msmc_data %>%
+    mutate(
+      time_scaled = (left_time_boundary / mu) * gen,
+      ne_scaled   = (1 / lambda_00) / (2 * mu),
+      type        = "autosome",
+      is_pseudodiploid = FALSE
+    )
+
+  # === Overlay autosomes + pseudodiploid if requested ===
+  # =======================================================
+  # === Overlay autosomes + pseudodiploid if requested ===
+  if (!is.null(autosomal_data) && !is.null(pseudodiploid_data) && !is.null(pseudodip_mu)) {
+
+      # Autosomal subset
+      # Autosomal subset for overlay
+    autosomes_sub <- autosomal_data %>%
+      filter(sample %in% c(pseudodiploid_data$sample1[1], pseudodiploid_data$sample2[1])) %>%
+      mutate(
+        time_scaled = (left_time_boundary / mu) * gen,
+        ne_scaled   = (1 / lambda_00) / (2 * mu),
+        type        = "autosome",
+        is_pseudodiploid = FALSE
+      )
+
+    # Pseudodiploid line
+    pseudo_line <- pseudodiploid_data %>%
+      mutate(
+        time_scaled = (left_time_boundary / pseudodip_mu) * gen,
+        ne_scaled   = (1 / lambda_00) / (2 * pseudodip_mu),
+        type        = "pseudodiploid",
+        sample      = "pseudodiploid",
+        is_pseudodiploid = TRUE,
+        continent   = "pseudodiploid"  # trick for coloring
+      )
+
+    # Combine
+    df <- bind_rows(autosomes_sub, pseudo_line)
+
+    # Force single-panel mode
+    panel_grouping_var <- NULL
+    ncol_panels <- 1
+    group_line_var <- "sample"
+    color_var <- "continent"  # keep coloring by continent
+
+    # Assign colors
+    manual_colors <- c(continent_colors, pseudodiploid = "red")
+
+    # Make factor for plotting
+    df[[color_var]] <- factor(df[[color_var]], levels = names(manual_colors))
+  }
+
+
+
+  # === If no manual_colors yet, generate default ===
+  if (is.null(manual_colors)) {
+    groups <- unique(df[[color_var]])
+    manual_colors <- setNames(
+      colorRampPalette(RColorBrewer::brewer.pal(8, "Set1"))(length(groups)),
+      groups
+    )
+  }
+
+  # === Line labels ===
+  if (!is.null(line_label)) {
+    df <- df %>%
+      mutate(
+        line_label_value = case_when(
+          is_pseudodiploid                       ~ "pseudodiploid",
+          line_label == "sample"                 ~ sample,
+          line_label == "region"                 ~ region,
+          line_label == "sample + region"        ~ paste0(sample, " (", region, ")"),
+          TRUE                                   ~ NA_character_
+        )
+      )
+  }
+
+  # === Base plot ===
+  p <- ggplot(df, aes(
+    x = time_scaled,
+    y = ne_scaled,
+    group = .data[[group_line_var]],
+    color = .data[[color_var]]
+  )) +
+    geom_step(size = 1.2) +
+    scale_color_manual(values = manual_colors) +
+    #scale_x_log10(limits = xlims) +
+    #scale_y_log10(limits = ylims) +
+    scale_x_log10(
+    limits = xlims,
+    breaks = c(1e4, 1e5, 1e6),
+    labels = c("10 kya", "100 kya", "1 Mya")
+    ) +
+    scale_y_log10(
+      breaks = c(1e3, 1e4, 1e5, 1e6, 1e7),
+      labels = c("1k", "10k", "100k", "1M", "10M")
+    ) +
+    coord_cartesian(ylim = ylims) +
+    annotation_logticks(sides = "bl") +
+    theme_bw(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      strip.text      = element_text(size = 12, face = "bold"),
+      axis.text.x.top = element_blank(),
+      axis.ticks.x.top = element_blank(),
+      axis.text.y.right = element_blank(),
+      axis.ticks.y.right = element_blank()
+    )
+
+  # === Facet ===
+  if (!is.null(panel_grouping_var) && panel_grouping_var %in% colnames(df)) {
+    p <- p + ggh4x::facet_wrap2(
+      as.formula(paste0("~", panel_grouping_var)),
+      ncol = ncol_panels,
+      scales = "fixed",
+      axes = "all",
+      strip = ggh4x::strip_vanilla()
+    )
+  }
+
+  # === Add line labels ===
+  if (!is.null(line_label)) {
+    label_df <- df %>%
+      group_by(.data[[group_line_var]]) %>%
+      slice_max(time_scaled, n = 1, with_ties = FALSE) %>%
+      ungroup()
+
+    p <- p + ggrepel::geom_text_repel(
+    data = label_df,
+    aes(
+      label = line_label_value,
+      color = .data[[color_var]]        # <-- line-label color matches line color
+    ),
+    size = 3,
+    segment.color = NA,
+    show.legend = FALSE                 # optional: keeps legends clean
+  )
+  }
+
+
+
+  # ---- Save ----
+  if (!is.null(save_file)) {
+    ggsave(save_file, p, width = 12, height = 8, dpi = 300)
+  }
+
+  return(p)
+}
+
+
+
+
+
+autosomal_plot <- plot_msmc_facet(
+  msmc_data = msmc_annotated,
+  mu = mu,
+  gen = gen,
+  panel_grouping_var = "continent",
+  color_var = "continent",
+  group_line_var = "sample",
+  ncol_panels = 2,
+  xlims = c(1, 1e7),
+  ylims = c(1e3, 1e7),
+  manual_colors = continent_colors,
+  save_file = file.path(plots_dir, "msmc_all_samples_facet.png")
+)
+
+
+
+highlight_samples <- c("LIS935", "S212760", "S120237", "ORC_S13-2559")
+
+autosomal_highlights_plot <- plot_msmc_facet(
+  msmc_data = msmc_annotated %>% filter(sample %in% highlight_samples),
+  mu = mu,
+  gen = gen,
+  panel_grouping_var = "continent",
+  color_var = "continent",
+  group_line_var = "sample",
+  line_label = "sample + region",
+  ncol_panels = 2,
+  xlims = c(1, 1e7),
+  ylims = c(1e3, 1e7),
+  manual_colors = continent_colors,
+  save_file = file.path(plots_dir, "msmc_highlight_samples_facet.png")
+)
+
+
+pseudo_mu <- mu * 0.75
+
+pseudodip_plot <- plot_msmc_facet(
+  msmc_data = msmc_pseudo,
+  mu = pseudo_mu,
+  gen = gen,
+  panel_grouping_var = "continent_pair",
+  color_var = "continent_pair",
+  group_line_var = "pair_id",
+  ncol_panels = 4,
+  xlims = c(1, 1e7),
+  ylims = c(1e3, 1e8),
+  save_file = file.path(plots_dir, "MSMC_pseudodiploids_facet.png")
+)
+
+# Keep only the continent pairs you want
+pseudo_asia <- msmc_pseudo %>%
+  filter(continent_pair %in% c("Asia-WestAsia/NorthAfrica", "Americas-Asia", "Asia-Europe")) #sensitive to actual names in the original df, so make sure orders aren't reversed, etc
+
+asia_pseudodip_plot <- plot_msmc_facet(
+  msmc_data = pseudo_asia, 
+  mu = pseudo_mu,
+  gen = gen,
+  panel_grouping_var = "continent_pair",
+  color_var = "continent_pair",
+  group_line_var = "pair_id",
+  ncol_panels = 2,
+  xlims = c(1, 5e6),
+  ylims = c(7e3, 1e9),
+  save_file = file.path(plots_dir, "MSMC_pseudodiploids_asia.png")
+)
+```
+
+
+
+
+```{r}
+
+########let's build from lambda, like anders' script 
+########### function to detect spike USING LAMBDA (correct for MSMC)
+
+#detect both spikes at once
+
+detect_msmc_spike_lambda <- function(
+  msmc,
+  mu,
+  gen,
+  single_bin_threshold = NULL,
+  multi_bin_bins = NULL,
+  multi_bin_threshold = NULL,
+  debug = FALSE
+) {
+  
+  # ---- preprocess MSMC table ----
+  msmc_proc <- msmc %>%
+    mutate(
+      lambda = lambda_00,
+      time_scaled = right_time_boundary / mu * gen
+    ) %>%
+    arrange(desc(time_scaled))  # ancient → recent
+
+  if (debug) {
+    message("MSMC table (ancient → recent):")
+    print(msmc_proc %>% select(time_scaled, lambda))
+  }
+
+  n <- nrow(msmc_proc)
+  
+  # ---- storage for candidate spikes ----
+  spikes <- tibble(
+    type = character(),
+    time = numeric(),
+    ratio = numeric()
+  )
+  
+  # ---- iterate ancient → recent ----
+  for (i in 2:n) {
+    lambda_prev <- msmc_proc$lambda[i - 1]
+    lambda_curr <- msmc_proc$lambda[i]
+    
+    # --- single-bin ratio ---
+    if (!is.na(lambda_prev) && !is.na(lambda_curr) &&
+        !is.null(single_bin_threshold)) {
+      lambda_ratio <- lambda_prev / lambda_curr
+      if (lambda_ratio >= single_bin_threshold) {
+        spikes <- spikes %>% add_row(
+          type = "single_bin",
+          time = msmc_proc$time_scaled[i],
+          ratio = lambda_ratio
+        )
+        if (debug) message("Single-bin spike candidate at ",
+                           signif(msmc_proc$time_scaled[i], 4),
+                           " (ratio: ", signif(lambda_ratio, 4), ")")
+      }
+    }
+    
+    # --- multi-bin ratio ---
+    if (!is.null(multi_bin_bins) && !is.null(multi_bin_threshold) &&
+        i + multi_bin_bins <= n) {
+      lambda_start <- msmc_proc$lambda[i]
+      lambda_end   <- msmc_proc$lambda[i + multi_bin_bins]
+      if (!is.na(lambda_start) && !is.na(lambda_end) &&
+          lambda_start > 0) {
+        lambda_ratio_multi <- lambda_start / lambda_end
+        if (lambda_ratio_multi >= multi_bin_threshold) {
+          spikes <- spikes %>% add_row(
+            type = "multi_bin",
+            time = msmc_proc$time_scaled[i],
+            ratio = lambda_ratio_multi
+          )
+          if (debug) message("Multi-bin spike candidate from ",
+                             signif(msmc_proc$time_scaled[i + multi_bin_bins],4),
+                             " → ", signif(msmc_proc$time_scaled[i],4),
+                             " (ratio: ", signif(lambda_ratio_multi,4), ")")
+        }
+      }
+    }
+  }
+  
+  # ---- choose spike to return ----
+  if (nrow(spikes) == 0) {
+    if (debug) message("No spikes detected.")
+    return(NULL)
+  }
+  
+  # prioritize multi-bin spikes first
+  multi_spikes <- spikes %>% filter(type == "multi_bin")
+  if (nrow(multi_spikes) > 0) {
+    # oldest multi-bin spike (ancient → recent)
+    oldest_multi <- multi_spikes %>% slice(1)
+    if (debug) message("Returning oldest multi-bin spike at ", oldest_multi$time)
+    return(oldest_multi$time)
+  }
+  
+  # if no multi-bin, return oldest single-bin spike
+  oldest_single <- spikes %>% filter(type == "single_bin") %>% slice(1)
+  if (debug) message("Returning oldest single-bin spike at ", oldest_single$time)
+  return(oldest_single$time)
+}
+```
+
+
+
+
+
+```{r}
+##############################################################################
+############## COMBINE ABOVE PLOTS, shouldn't need above loop call
+##############################################################################
+pseudodiploids_spike_plots <- file.path(
+  plots_dir,
+  "msmc_pseudodiploids_individual_pairs_spike"
+)
+
+
+
+dir.create(pseudodiploids_spike_plots, recursive = TRUE, showWarnings = FALSE)
+
+##########subset for testing
+########## subset for testing
+pair_ids <- unique(msmc_pseudo$pair_id)[1:500]
+
+for (pid in pair_ids) {
+  pseudo_pair <- msmc_pseudo %>% filter(pair_id == pid)
+
+  ind1 <- pseudo_pair$sample1[1]
+  ind2 <- pseudo_pair$sample2[1]
+  reg1 <- pseudo_pair$region1[1]
+  reg2 <- pseudo_pair$region2[1]
+
+  save_file <- file.path(
+    pseudodiploids_spike_plots,
+    paste0(
+      gsub("[^A-Za-z0-9_-]", "_", reg1), "_",
+      gsub("[^A-Za-z0-9_-]", "_", reg2),
+      ".png"
+    )
+  )
+
+  autosomes_sub <- msmc_annotated %>%
+    filter(sample %in% c(ind1, ind2))
+
+  # ---- Base MSMC plot ----
+  p <- plot_msmc_facet(
+    msmc_data = autosomes_sub,
+    autosomal_data = autosomes_sub,
+    pseudodiploid_data = pseudo_pair,
+    mu = mu,
+    pseudodip_mu = pseudo_mu,
+    gen = gen,
+    panel_grouping_var = "pair_id",
+    group_line_var = "sample",
+    color_var = "continent",
+    line_label = "sample + region",
+    save_file = NULL,
+    xlims = c(1e2, 5e6),
+    ylims = c(1e3, 1e7) 
+  )
+
+  # ---- Detect spike ----
+  spike_value <- detect_msmc_spike_lambda(
+    msmc = pseudo_pair,
+    mu = pseudo_mu,
+    gen = gen,
+    multi_bin_bins = 2,
+    multi_bin_threshold = 35,
+    single_bin_threshold = 11000,
+    debug = FALSE
+  )
+
+  # ---- Overlay spike ----
+  if (!is.null(spike_value)) {
+    p <- p + geom_vline(
+      xintercept = spike_value,
+      linetype = "longdash",
+      linewidth = 1,
+      colour = "darkred"
+    )
+
+    message(
+      "Spike detected for ", reg1, " × ", reg2, ": ",
+      format(round(spike_value), scientific = FALSE, big.mark = ","),
+      " years"
+    )
+  }
+
+  ggsave(
+    filename = save_file,
+    plot     = p,
+    width    = 10,
+    height   = 7,
+    dpi      = 300
+  )
+}
+```
+
+```{r}
+debug_pairs <- c(
+  "AK_S12-1159_LIS1300",#ka × England example
+  "AK_S12-1159_LIS557"       # Alaska × Finland example
+)
+for (pattern in debug_pairs) {
+  pseudo_pair <- msmc_pseudo %>% filter(grepl(pattern, pair_id))
+
+  if (nrow(pseudo_pair) == 0) {
+    message("No data for pattern: ", pattern)
+    next
+  }
+
+  message("\n=== DEBUG: ", pseudo_pair$pair_id[1], " ===\n")
+
+  msmc_proc <- pseudo_pair %>%
+    mutate(
+      lambda = lambda_00,
+      time_scaled = right_time_boundary / pseudo_mu * gen
+    ) %>%
+    arrange(desc(time_scaled))  # ancient → recent
+
+  # Inspect around ~100kya
+  window_mask <- msmc_proc$time_scaled >= 5e4 & msmc_proc$time_scaled <= 1.5e5
+  msmc_window <- msmc_proc[window_mask, ]
+  print(msmc_window %>% select(time_scaled, lambda))
+
+  # Run spike detection
+  spike_value <- detect_msmc_spike_lambda(
+    msmc = pseudo_pair,
+    mu = pseudo_mu,
+    gen = gen,
+    multi_bin_bins = 4,
+    multi_bin_threshold = 25,
+    single_bin_threshold = 11000,
+    debug = TRUE
+  )
+
+  if (!is.null(spike_value)) {
+    message("Spike detected at: ", signif(spike_value, 4), " years")
+  } else {
+    message("No spike detected in this pair around 100kya.")
+  }
+}
+
+```
+
+
+```{r}
+#just a helper chunk to make everything above easier to run 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+pseudodiploids_plots <- file.path(
+  plots_dir,
+  "msmc_pseudodiploids_individual_pairs"
+)
+
+if (!dir.exists(pseudodiploids_plots)) {
+  dir.create(pseudodiploids_plots, recursive = TRUE)
+}
+
+# All unique pair IDs
+pairs_to_run <- unique(msmc_pseudo$pair_id)
+#pairs_to_run <- unique(msmc_pseudo$pair_id)[1:3]
+
+# Uncomment the next line to only run the first 5 pairs (for testing)
+# pairs_to_run <- head(pairs_to_run, 5)
+
+for (pair_id in pairs_to_run) {
+
+  pseudo_pair <- msmc_pseudo %>% 
+    filter(pair_id == !!pair_id)
+
+  # Extract source individuals
+  ind1 <- pseudo_pair$sample1[1]
+  ind2 <- pseudo_pair$sample2[1]
+
+  # Extract regions for naming
+  reg1 <- pseudo_pair$region1[1]
+  reg2 <- pseudo_pair$region2[1]
+
+  autosomes_sub <- msmc_annotated %>%
+    filter(sample %in% c(ind1, ind2))
+
+  # Save file path (REGION-based)
+  save_file <- file.path(
+    pseudodiploids_plots,
+    paste0(reg1, "_", reg2, ".png")
+  )
+
+  # Plot + save
+  plot_msmc_facet(
+    msmc_data = autosomes_sub,
+    autosomal_data = autosomes_sub,
+    pseudodiploid_data = pseudo_pair,
+    mu = mu,
+    pseudodip_mu = pseudo_mu,
+    gen = gen,
+    panel_grouping_var = "pair_id",
+    group_line_var = "sample",
+    color_var = "continent",
+    line_label = "sample + region",
+    save_file = save_file,
+    xlims = c(3e4, 5e6),
+    ylims = c(1e3, 1e7
+  )
+}
+
+```
+
+
+
+
+```{r}
+# Directory for individual autosomal plots
+individual_autosome_plots <- file.path(plots_dir, "msmc_autosomal_individuals")
+if (!dir.exists(individual_autosome_plots)) {
+  dir.create(individual_autosome_plots, recursive = TRUE)
+}
+
+# All unique sample names
+samples_to_run <- unique(msmc_annotated$sample)
+
+# Uncomment the next line to only run the first 5 samples (for testing)
+#samples_to_run <- head(samples_to_run, 5)
+
+for (sample_name in samples_to_run) {
+
+  sample_data <- msmc_annotated %>% filter(sample == sample_name)
+
+  save_file <- file.path(individual_autosome_plots, paste0(sample_name, ".png"))
+
+  plot_msmc_facet(
+    msmc_data = sample_data,
+    mu = mu,
+    gen = gen,
+    panel_grouping_var = NULL,    # single panel
+    color_var = "continent",
+    group_line_var = "sample",
+    line_label = "sample + region",
+    ncol_panels = 1,
+    xlims = c(1e4, 1e7),
+    ylims = c(1e3, 1e7),
+    manual_colors = continent_colors,
+    save_file = save_file
+  )
+}
+
+
+``` 
+
