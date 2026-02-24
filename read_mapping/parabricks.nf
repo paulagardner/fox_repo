@@ -16,13 +16,15 @@
 
 
 //// or via: 
-// sbatch --job-name=nextflow_test \
-//        --output=nextflow_logs/%x.%j.out \
-//        --error=nextflow_logs/%x.%j.err \
-//        --cpus-per-task=4 \
-//        --mem=16G \
-//        --time=2:00:00 \
-//        --wrap "module load nextflow/25.04.6; nextflow run parabricks.nf --inputtsv Lyu_genomes/inputFile.tsv -resume"
+// mkdir -p nextflow_logs &&
+// sbatch \
+//   --job-name=nextflow_test \
+//   --output=nextflow_logs/%x.%j.out \
+//   --error=nextflow_logs/%x.%j.err \
+//   --time=3:00:00 \
+//   --wrap "module load nextflow/25.04.6; \
+//           cd /gpfs/home/xrq24scu/fox_repo/read_mapping; \
+//           nextflow run parabricks.nf --inputtsv Lyu_genomes/inputFile.tsv -resume"
 
 
 // make sure to transfer to an actual container you start to build  
@@ -96,7 +98,6 @@ Channel
             row.Sample_Name,
             row.Library_ID,
             row.Lane,
-            row.SeqType,
             row.R1,
             row.R2
         )
@@ -105,22 +106,22 @@ Channel
 
 
 
-process make_readgroup {
+// process make_readgroup {
 
-    tag "$Sample_Name"
+//     tag "$Sample_Name"
 
-    input:
-    tuple val(Sample_Name), val(Library_ID), val(Lane), val(SeqType), path(R1), path(R2)
+//     input:
+//     tuple val(Sample_Name), val(Library_ID), val(Lane), val(SeqType), path(R1), path(R2)
 
-    output:
-    tuple val(Sample_Name), val(readgroup), path(R1), path(R2)
+//     output:
+//     tuple val(Sample_Name), val(Library_ID), val(Lane), path(R1), path(R2)
 
-    script:
-    readgroup = "@RG\tID:${Sample_Name}\tSM:${Sample_Name}\tLB:${Library_ID}\tPL:NA\tPU:${Lane}"
-    """
-    printf '%s' "$readgroup"
-    """
-}
+//     script:
+//     readgroup = "@RG\tID:${Sample_Name}\tSM:${Sample_Name}\tLB:${Library_ID}\tPL:NA\tPU:${Lane}"
+//     """
+//     printf '%s' "$readgroup"
+//     """
+// }
 
 // process subset_fastqs {
 
@@ -149,40 +150,52 @@ process make_readgroup {
 //     """
 // }
 
+
+// make a paired-end vs. single-end support for doing the mitochondrial DNA identification???
 process parabricks_fq2bam {
 
     tag "$Sample_Name"
 
     executor 'slurm'
     queue 'gpu'
-    cpus 32
-    memory '128 GB'
+
+    cpus 6
+    memory '480 GB'
     time '12h'
 
-    clusterOptions '--partition=gpu --qos=gpu --gpus=1'
+    clusterOptions '--qos=gpu --gpus=1'
+
+    publishDir "results", mode: 'symlink'
 
     input:
-    tuple val(Sample_Name), val(readgroup), path(R1), path(R2)
+    tuple val(Sample_Name), val(Library_ID), val(Lane), path(R1), path(R2)
+
+    
+    output:
+    path "${Sample_Name}.bam"
 
     script:
     """
     set -euo pipefail
 
-    echo "SLURM_JOB_ID=\$SLURM_JOB_ID"
-    echo "SLURM_GPUS=\$SLURM_GPUS"
-    echo "CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES"
-
     module load apptainer
     nvidia-smi
 
+    mkdir -p /gpfs/scratch/xrq24scu/${Sample_Name}
+    
+
     apptainer run --nv /gpfs/data/bergstrom/paula/fox_repo/read_mapping/parabricks-4.2.0-1.sif \\
-        pbrun fq2bam \\
-        --num-gpus 1 \\
-        --ref /gpfs/home/xrq24scu/fox_repo/read_mapping/mVulVul1/mVulVul1.fa \\
-        --in-fq $R1 $R2 "$readgroup" \\
-        --out-bam ${Sample_Name}.bam
+      pbrun fq2bam \\
+      --num-gpus 1 \\
+      --num-cpu-threads 6 \\
+      --tmp-dir /gpfs/scratch/xrq24scu/${Sample_Name} \\
+      --logfile ${Sample_Name}.parabricks.log \\
+      --ref /gpfs/home/xrq24scu/fox_repo/read_mapping/mVulVul1/mVulVul1.fa \\
+      --in-fq $R1 $R2 "@RG\\tID:${Sample_Name}\\tSM:${Sample_Name}\\tLB:${Library_ID}\\tPL:NA\\tPU:${Lane}" \\
+      --out-bam ${Sample_Name}.bam
     """
 }
+
 
 
 workflow {
@@ -195,12 +208,12 @@ workflow {
     // parabricks_fq2bam(readgroup_ch)
 
 
-    readgroup_ch = make_readgroup(input_ch)
+    // readgroup_ch = make_readgroup(input_ch)
 
     // test_ch = params.test_mode \
     //     ? subset_fastqs(readgroup_ch) \
     //     : readgroup_ch
     // parabricks_fq2bam(test_ch)
 
-    parabricks_fq2bam(readgroup_ch)
+    parabricks_fq2bam(input_ch)
 } 
